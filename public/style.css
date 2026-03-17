@@ -47,3 +47,7 @@ body.mobile-mode{overscroll-behavior:none;touch-action:manipulation}body.mobile-
 #currencyInfo{margin-top:6px;color:var(--gold);font-size:12px}
 .soulShop h3{margin:0 0 8px;color:#f5d5d9;text-shadow:2px 2px 0 #000}.shopCard{padding:8px;border:2px solid rgba(255,255,255,.08);margin-bottom:8px;background:rgba(255,255,255,.04)}
 @media (max-width: 840px){ .soulShop{width:calc(100vw - 24px); left:12px; right:12px; bottom:220px;} }
+
+
+/* performance mode */
+.panel { backdrop-filter: none !important; box-shadow: 0 6px 14px rgba(0,0,0,.18) !important; }

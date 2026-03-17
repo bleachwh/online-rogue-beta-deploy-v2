@@ -330,5 +330,5 @@ io.on('connection', socket => {
   });
 });
 
-setInterval(()=>{ for(const room of rooms.values()){ updateRoom(room,1/20); emitRoom(room); } }, 1000/20);
+setInterval(()=>{ for(const room of rooms.values()){ updateRoom(room,1/15); emitRoom(room); } }, 1000/15);
 server.listen(PORT, HOST, ()=>console.log(`Server listening on http://${HOST}:${PORT}`));

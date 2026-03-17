@@ -218,7 +218,9 @@ function drawEnemy(me,e){
   const pos=worldToScreen(me,e.x,e.y);
   const info = getEnemyDrawState(e);
   if(spritesReady){
-    const frame = info.state==='death' ? 3 : info.state==='attack' ? animFrame(9, e.seed||0) : info.state==='walk' ? animFrame(10, e.seed||0) : animFrame(4, e.seed||0);
+    const distApprox = Math.abs(e.x - me.x) + Math.abs(e.y - me.y);
+    const staticFar = PERF.low ? distApprox > 420 : distApprox > 760;
+    const frame = staticFar ? 0 : (info.state==='death' ? 3 : info.state==='attack' ? animFrame(8, e.seed||0) : info.state==='walk' ? animFrame(PERF.low ? 6 : 9, e.seed||0) : animFrame(PERF.low ? 2 : 4, e.seed||0));
     const row = enemyRow(e.sprite, info.state);
     ctx.save();
     ctx.translate(pos.x, pos.y);
