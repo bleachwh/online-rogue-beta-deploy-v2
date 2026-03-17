@@ -15,6 +15,9 @@ const leaderboardFile = path.join(__dirname, 'leaderboard.json');
 app.use(express.static(publicDir));
 app.get('/health', (_, res) => res.json({ ok: true, service: 'online-rogue-beta-vnext' }));
 const rooms = new Map();
+const TOTAL_WAVES = 20;
+const WAVE_DURATION = 8 * 60;
+
 let leaderboard = [];
 try { leaderboard = JSON.parse(fs.readFileSync(leaderboardFile, 'utf8')); } catch {}
 function saveLeaderboard(){ fs.writeFileSync(leaderboardFile, JSON.stringify(leaderboard, null, 2), 'utf8'); }
@@ -34,7 +37,7 @@ function defaultPlayer(id,name,cls){
   return {
     id, name:String(name||'玩家').slice(0,20), cls:cls||'swordsman',
     x:0, y:0, aimX:1, aimY:0, hp:100, maxHp:100, level:1, xp:0, xpNeed:10,
-    kills:0, gold:0, ready:false, alive:true,
+    kills:0, gold:0, souls:0, ready:false, alive:true,
     input:{up:false,down:false,left:false,right:false,firing:false},
     upgradesOpen:false, upgradeOptions:[], invuln:0, dashCd:0, skillCd:0, shootCd:0
   };
@@ -44,16 +47,16 @@ function makeRoom(hostId,name,cls){
   const s = classStats(p.cls);
   p.maxHp = s.maxHp; p.hp = s.maxHp;
   return {
-    code:makeRoomCode(), started:false, ended:false, wave:1, waveTime:0, waveDuration:42, spawnTimer:0,
-    chat:[], players:new Map([[hostId, p]]), enemies:[], bullets:[], enemyBullets:[], gems:[], overSummary:null
+    code:makeRoomCode(), started:false, ended:false, shopping:false, wave:1, waveTime:0, waveDuration:WAVE_DURATION, spawnTimer:0,
+    shopOptions:[], players:new Map([[hostId, p]]), enemies:[], bullets:[], enemyBullets:[], gems:[], overSummary:null
   };
 }
 function serializeRoom(room){
   return {
-    code:room.code, started:room.started, ended:room.ended, wave:room.wave, waveTime:room.waveTime, waveDuration:room.waveDuration,
+    code:room.code, started:room.started, ended:room.ended, shopping:room.shopping, wave:room.wave, waveTime:room.waveTime, waveDuration:room.waveDuration,
     players:[...room.players.values()].map(p => ({...p, color:classStats(p.cls).color})),
     enemies:room.enemies, bullets:room.bullets, enemyBullets:room.enemyBullets, gems:room.gems,
-    chat:room.chat.slice(-20), overSummary:room.overSummary, leaderboard:leaderboard.slice(0,10)
+    shopOptions:room.shopOptions, overSummary:room.overSummary, leaderboard:leaderboard.slice(0,10)
   };
 }
 function roomForSocket(id){ for (const r of rooms.values()) if (r.players.has(id)) return r; return null; }
@@ -69,8 +72,30 @@ const UPGRADE_POOL = [
 ];
 const randomUpgradeOptions = () => [...UPGRADE_POOL].sort(()=>Math.random()-0.5).slice(0,3).map(u => ({key:u.key,title:u.title}));
 function applyUpgrade(p,key){ const u=UPGRADE_POOL.find(x=>x.key===key); if(!u) return; u.apply(p); p.upgradesOpen=false; p.upgradeOptions=[]; }
-function grantXp(p,amt){ p.xp += amt; while(p.xp >= p.xpNeed){ p.xp -= p.xpNeed; p.level += 1; p.xpNeed = Math.floor(p.xpNeed*1.25+6); p.upgradesOpen=true; p.upgradeOptions=randomUpgradeOptions(); } }
+function grantXp(p,amt){ p.xp += amt; p.souls = (p.souls||0) + amt; while(p.xp >= p.xpNeed){ p.xp -= p.xpNeed; p.level += 1; p.xpNeed = Math.floor(p.xpNeed*1.25+6); p.upgradesOpen=true; p.upgradeOptions=randomUpgradeOptions(); } }
 
+
+function randomShopOptions(){
+  return [
+    { key:'sword', title:'猩红大剑', cost:30, desc:'+12 攻击', apply:p=>{ p._power=(p._power||0)+12; } },
+    { key:'armor', title:'亡骨战甲', cost:28, desc:'+45 最大生命', apply:p=>{ p.maxHp += 45; p.hp += 45; } },
+    { key:'boots', title:'暗影长靴', cost:24, desc:'+32 移速', apply:p=>{ p._speed=(p._speed||0)+32; } },
+    { key:'focus', title:'夜魔指环', cost:26, desc:'+8% 攻速', apply:p=>{ p._haste=(p._haste||0)+0.08; } },
+    { key:'orb', title:'魂焰秘器', cost:40, desc:'+18 攻击 与 +4% 攻速', apply:p=>{ p._power=(p._power||0)+18; p._haste=(p._haste||0)+0.04; } }
+  ].sort(()=>Math.random()-0.5).slice(0,3);
+}
+function openSoulShop(room){
+  room.started = false;
+  room.shopping = true;
+  room.enemies = []; room.enemyBullets = []; room.bullets = []; room.gems = [];
+  room.shopOptions = randomShopOptions();
+}
+function nextWave(room){
+  room.shopping = false;
+  room.started = true;
+  room.wave += 1; room.waveTime = 0; room.waveDuration = WAVE_DURATION; room.spawnTimer = 0;
+  room.enemies = []; room.enemyBullets = []; room.bullets = []; room.gems = [];
+}
 function makeEnemy(kind, room){
   const edge = Math.floor(Math.random()*4), spread=550; let x=0,y=0;
   if(edge===0){x=-spread;y=(Math.random()-0.5)*600;} if(edge===1){x=spread;y=(Math.random()-0.5)*600;}
@@ -97,23 +122,23 @@ function endRoom(room, cleared){
   leaderboard=leaderboard.sort((a,b)=>(b.cleared-a.cleared)||(b.wave-a.wave)||(b.kills-a.kills)||(b.level-a.level)).slice(0,50); saveLeaderboard();
 }
 function restartRoom(room){
-  room.started=false; room.ended=false; room.wave=1; room.waveTime=0; room.waveDuration=42; room.spawnTimer=0;
-  room.enemies=[]; room.bullets=[]; room.enemyBullets=[]; room.gems=[]; room.overSummary=null;
+  room.started=false; room.ended=false; room.shopping=false; room.wave=1; room.waveTime=0; room.waveDuration=WAVE_DURATION; room.spawnTimer=0;
+  room.enemies=[]; room.bullets=[]; room.enemyBullets=[]; room.gems=[]; room.shopOptions=[]; room.overSummary=null;
   let offset=-70;
   for(const p of room.players.values()){
     const fresh=defaultPlayer(p.id,p.name,p.cls); const s=classStats(p.cls);
-    fresh.maxHp=s.maxHp; fresh.hp=s.maxHp; fresh.x=offset; fresh.y=0; offset += 140;
+    fresh.maxHp=s.maxHp; fresh.hp=s.maxHp; fresh.x=offset; fresh.y=0; fresh.souls=0; offset += 140;
     room.players.set(p.id,fresh);
   }
 }
 function startRoom(room){
-  room.started=true; room.ended=false; room.wave=1; room.waveTime=0; room.waveDuration=42; room.spawnTimer=0;
-  room.enemies=[]; room.bullets=[]; room.enemyBullets=[]; room.gems=[]; room.overSummary=null;
+  room.started=true; room.ended=false; room.shopping=false; room.wave=1; room.waveTime=0; room.waveDuration=WAVE_DURATION; room.spawnTimer=0;
+  room.enemies=[]; room.bullets=[]; room.enemyBullets=[]; room.gems=[]; room.shopOptions=[]; room.overSummary=null;
   let offset=-80;
   for(const player of room.players.values()){
     const s=classStats(player.cls);
     player.x=offset; player.y=0; player.maxHp=s.maxHp; player.hp=s.maxHp; player.level=1; player.xp=0; player.xpNeed=10;
-    player.kills=0; player.gold=0; player.alive=true; player.upgradesOpen=false; player.upgradeOptions=[]; player._power=0; player._haste=0; player._speed=0;
+    player.kills=0; player.gold=0; player.souls=0; player.alive=true; player.upgradesOpen=false; player.upgradeOptions=[]; player._power=0; player._haste=0; player._speed=0;
     player.invuln=0; player.dashCd=0; player.skillCd=0; player.shootCd=0;
     offset += 160;
   }
@@ -134,7 +159,7 @@ function updatePlayerMovement(player, dt){
 function updateRoom(room, dt){
   // Players can always move in room, even before game start.
   for(const p of room.players.values()) updatePlayerMovement(p, dt);
-  if(!room.started || room.ended) return;
+  if(!room.started || room.ended || room.shopping) return;
 
   room.waveTime += dt; room.spawnTimer += dt;
   for(const p of room.players.values()){
@@ -227,8 +252,9 @@ function updateRoom(room, dt){
   }
 
   if(room.waveTime >= room.waveDuration){
-    room.wave += 1; room.waveTime=0; room.waveDuration=Math.min(60,42+room.wave*3);
-    if(room.wave>5){ endRoom(room,true); return; }
+    if(room.wave >= TOTAL_WAVES){ endRoom(room,true); return; }
+    openSoulShop(room);
+    return;
   }
 }
 
@@ -293,11 +319,8 @@ io.on('connection', socket => {
     const p=room.players.get(socket.id); if(!p||!p.upgradesOpen) return;
     applyUpgrade(p,key); emitRoom(room);
   });
-  socket.on('chat', ({text})=>{
-    const room=roomForSocket(socket.id); if(!room) return;
-    const p=room.players.get(socket.id); const clean=String(text||'').trim().slice(0,120); if(!clean) return;
-    room.chat.push({id:Math.random().toString(36).slice(2), name:p.name, text:clean}); emitRoom(room);
-  });
+  socket.on('buySoulShop', ({index})=>{ const room=roomForSocket(socket.id); if(!room || !room.shopping) return; const p=room.players.get(socket.id); const item=room.shopOptions[index]; if(!p || !item || (p.souls||0) < item.cost) return; p.souls -= item.cost; item.apply(p); emitRoom(room); });
+  socket.on('nextWave', ()=>{ const room=roomForSocket(socket.id); if(!room || !room.shopping) return; nextWave(room); emitRoom(room); });
   socket.on('restart', ()=>{ const room=roomForSocket(socket.id); if(!room) return; restartRoom(room); emitRoom(room); });
   socket.on('disconnect', reason => {
     console.log('[disconnect]', socket.id, reason);
@@ -307,5 +330,5 @@ io.on('connection', socket => {
   });
 });
 
-setInterval(()=>{ for(const room of rooms.values()){ updateRoom(room,1/30); emitRoom(room); } }, 1000/30);
+setInterval(()=>{ for(const room of rooms.values()){ updateRoom(room,1/20); emitRoom(room); } }, 1000/20);
 server.listen(PORT, HOST, ()=>console.log(`Server listening on http://${HOST}:${PORT}`));

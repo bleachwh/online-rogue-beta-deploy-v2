@@ -63,12 +63,31 @@ const menu = document.getElementById('menu'), roomPanel = document.getElementByI
 const menuMsg = document.getElementById('menuMsg'), connectBadge = document.getElementById('connectBadge'), socketText = document.getElementById('socketText');
 const playersList = document.getElementById('playersList'), roomCodeEl = document.getElementById('roomCode'), roomInfo = document.getElementById('roomInfo'), roomDebug = document.getElementById('roomDebug');
 const waveText = document.getElementById('waveText'), meInfo = document.getElementById('meInfo'), teamInfo = document.getElementById('teamInfo');
-const chatLog = document.getElementById('chatLog'), chatInput = document.getElementById('chatInput'), leaderboardList = document.getElementById('leaderboardList');
+leaderboardList = document.getElementById('leaderboardList');
 const upgrades = document.getElementById('upgrades'), upgradeList = document.getElementById('upgradeList');
 const summary = document.getElementById('summary'), summaryTitle = document.getElementById('summaryTitle'), summaryBody = document.getElementById('summaryBody');
+const soulShop = document.getElementById('soulShop'), soulText = document.getElementById('soulText'), shopList = document.getElementById('shopList'), nextWaveBtn = document.getElementById('nextWaveBtn');
+const currencyInfo = document.getElementById('currencyInfo');
 const heroBadge = document.getElementById('heroBadge'), levelText = document.getElementById('levelText'), hpText = document.getElementById('hpText'), xpText = document.getElementById('xpText');
 const hpFill = document.getElementById('hpFill'), xpFill = document.getElementById('xpFill');
 let W=0,H=0,DPR=Math.min(window.devicePixelRatio||1,2), state=null, myId=null, mouse={x:1,y:0}, firing=false, keys={up:false,down:false,left:false,right:false};
+
+const PERF = {
+  low: !!(window.matchMedia('(pointer: coarse)').matches || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4)),
+  uiHz: 8,
+  minimapHz: 6,
+  sendHz: 15,
+  renderEnemyCap: 90,
+  renderBulletCap: 140,
+  renderGemCap: 70
+};
+let pendingState = null;
+let uiDirty = false;
+let lastUiPaint = 0;
+let lastMinimapPaint = 0;
+let lastFrameTs = 0;
+let lastHudSignature = '';
+
 const isTouchDevice = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 const mobileControls = document.getElementById('mobileControls');
 const joystickZone = document.getElementById('joystickZone');
@@ -94,8 +113,8 @@ function showRoomUI(){ roomPanel.classList.remove('hidden'); hud.classList.remov
 function showMenuUI(){ roomPanel.classList.add('hidden'); hud.classList.add('hidden'); menu.classList.remove('hidden'); }
 
 // Allow free movement in room and during upgrades; only block if ended/dead.
-function canMove(){ const me=getMe(); return !!(me && me.alive && !state?.ended); }
-function canAttack(){ const me=getMe(); return !!(state?.started && me && me.alive && !state?.ended); }
+function canMove(){ const me=getMe(); return !!(me && me.alive && !state?.ended && !state?.shopping); }
+function canAttack(){ const me=getMe(); return !!(state?.started && !state?.shopping && me && me.alive && !state?.ended); }
 function resetInputs(){ keys={up:false,down:false,left:false,right:false}; firing=false; }
 function setMoveKeysFromVector(nx, ny) { const threshold = 0.2; keys.left = nx < -threshold; keys.right = nx > threshold; keys.up = ny < -threshold; keys.down = ny > threshold; }
 function releaseTouchMove() { touchState.active = false; touchState.id = null; setMoveKeysFromVector(0,0); joyBase.classList.add('hidden'); joyStick.classList.add('hidden'); }
@@ -119,11 +138,42 @@ function sendInput(){
   if(!socket.connected) return;
   socket.emit('input',{ input:{...keys,firing:canAttack() ? firing : false}, aimX:mouse.x, aimY:mouse.y });
 }
-setInterval(sendInput, 1000/20);
+setInterval(sendInput, 1000 / PERF.sendHz);
 
 const worldToScreen=(me,x,y)=>({x:x-me.x+W/2,y:y-me.y+H/2});
+function inView(me, x, y, pad=64){
+  const sx = x - me.x + W / 2;
+  const sy = y - me.y + H / 2;
+  return sx > -pad && sx < W + pad && sy > -pad && sy < H + pad;
+}
+function limitedVisible(list, me, cap, pad=64){
+  if (!Array.isArray(list) || list.length === 0) return [];
+  const out = [];
+  for (let i = 0; i < list.length; i++) {
+    const item = list[i];
+    if (inView(me, item.x, item.y, pad)) {
+      out.push(item);
+      if (out.length >= cap) break;
+    }
+  }
+  return out;
+}
+
 function drawGrid(me){ const size=72, ox=(( -me.x % size)+size)%size, oy=(( -me.y % size)+size)%size; ctx.strokeStyle='rgba(255,255,255,.05)'; ctx.lineWidth=1; for(let x=ox;x<W;x+=size){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); } for(let y=oy;y<H;y+=size){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); } }
-function drawWorldDecor(me){ const tile=144, ox=(( -me.x % tile)+tile)%tile, oy=(( -me.y % tile)+tile)%tile; for(let x=ox-tile;x<W+tile;x+=tile){ for(let y=oy-tile;y<H+tile;y+=tile){ const seed=Math.abs(Math.sin(x*0.01+y*0.013)); ctx.globalAlpha=.08+seed*.05; ctx.fillStyle= seed>.55 ? '#3f5f2b' : '#6d5938'; ctx.fillRect(x+22,y+22,10+seed*16,10+seed*16); } } ctx.globalAlpha=1; }
+function drawWorldDecor(me){
+  const tile = PERF.low ? 192 : 144;
+  const ox=(( -me.x % tile)+tile)%tile, oy=(( -me.y % tile)+tile)%tile;
+  for(let x=ox-tile;x<W+tile;x+=tile){
+    for(let y=oy-tile;y<H+tile;y+=tile){
+      const seed=Math.abs(Math.sin(x*0.01+y*0.013));
+      ctx.globalAlpha = PERF.low ? (.05 + seed*.03) : (.08 + seed*.05);
+      ctx.fillStyle = seed>.55 ? '#3f5f2b' : '#6d5938';
+      const size = PERF.low ? (8 + seed*10) : (10 + seed*16);
+      ctx.fillRect(x+22,y+22,size,size);
+    }
+  }
+  ctx.globalAlpha=1;
+}
 
 function drawPlayer(me,p){
   const pos=worldToScreen(me,p.x,p.y), bob=Math.sin((Date.now()/130)+(p.x+p.y)*0.01)*1.8;
@@ -247,20 +297,35 @@ function drawBullet(me,b,enemy=false){
   ctx.beginPath(); ctx.fillStyle=enemy?'#ff8ca0':(b.kind==='knife'?'#ffd76f':'#9fd1ff'); ctx.arc(pos.x,pos.y,b.r,0,Math.PI*2); ctx.fill();
 }
 function drawGem(me,g){ const pos=worldToScreen(me,g.x,g.y); ctx.beginPath(); ctx.fillStyle='#6ac8ff'; ctx.arc(pos.x,pos.y,5,0,Math.PI*2); ctx.fill(); }
-function render(){
-  requestAnimationFrame(render); ctx.clearRect(0,0,W,H);
+function render(ts){
+  requestAnimationFrame(render);
+  if (ts && lastFrameTs && PERF.low && ts - lastFrameTs < 20) return;
+  lastFrameTs = ts || 0;
+  ctx.clearRect(0,0,W,H);
   if(!state || !state.players?.length) return;
   const me = hasSyncedMe() ? state.players.find(p=>p.id===myId) : null;
   if(!me) return;
-  const bg=ctx.createLinearGradient(0,0,0,H); bg.addColorStop(0,'#22405f'); bg.addColorStop(.55,'#29462f'); bg.addColorStop(1,'#1b2a19'); ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
-  drawGrid(me); drawWorldDecor(me);
-  for(const g of state.gems||[]) drawGem(me,g);
-  for(const b of state.bullets||[]) drawBullet(me,b,false);
-  for(const b of state.enemyBullets||[]) drawBullet(me,b,true);
-  for(const e of state.enemies||[]) drawEnemy(me,e);
-  for(const p of state.players||[]) drawPlayer(me,p);
+
+  const bg=ctx.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0,'#22405f'); bg.addColorStop(.55,'#29462f'); bg.addColorStop(1,'#1b2a19');
+  ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+
+  drawGrid(me);
+  if (!PERF.low || ((ts||0) - lastMinimapPaint > 160)) drawWorldDecor(me);
+
+  const gems = limitedVisible(state.gems||[], me, PERF.renderGemCap, 48);
+  const bullets = limitedVisible(state.bullets||[], me, PERF.renderBulletCap, 48);
+  const enemyBullets = limitedVisible(state.enemyBullets||[], me, PERF.renderBulletCap, 48);
+  const enemies = limitedVisible(state.enemies||[], me, PERF.renderEnemyCap, 80);
+  const players = state.players || [];
+
+  for(const g of gems) drawGem(me,g);
+  for(const b of bullets) drawBullet(me,b,false);
+  for(const b of enemyBullets) drawBullet(me,b,true);
+  for(const e of enemies) drawEnemy(me,e);
+  for(const p of players) if(inView(me,p.x,p.y,120) || p.id===myId) drawPlayer(me,p);
 }
-render();
+requestAnimationFrame(render);
 
 function updateUI(){
   if(!state) { showMenuUI(); return; }
@@ -281,15 +346,19 @@ function updateUI(){
 
   roomCodeEl.textContent = state.code || '----';
   roomInfo.textContent = `房间 ${state.code || '----'}`;
-  roomDebug.textContent = `房间玩家数：${players.length} · 已开始：${state.started?'是':'否'} · 方向动画已启用${state.started?'':' · 现在可自由活动'}${players.length===1 && !state.started ? ' · 单人可直接准备开始' : ''}`;
-  waveText.textContent = `第 ${state.wave} 波`;
+  roomDebug.textContent = `房间玩家数：${players.length} · 已开始：${state.started?'是':'否'}${state.shopping?' · 魂魄商店开启':''} · 暗黑像素风`;
+  waveText.textContent = `第 ${state.wave} / 20 波`; 
 
-  playersList.innerHTML = '';
-  for(const p of players){
-    const div=document.createElement('div');
-    div.className='playerItem';
-    div.innerHTML=`<b style="color:${clsColor(p.cls)}">${p.name}</b> · ${clsName(p.cls)} · ${p.ready?'已准备':'未准备'}`;
-    playersList.appendChild(div);
+  const hudSignature = players.map(p => `${p.id}:${p.ready}:${p.level}:${p.hp}`).join('|') + '::' + state.started;
+  if (hudSignature !== lastHudSignature) {
+    lastHudSignature = hudSignature;
+    playersList.innerHTML = '';
+    for(const p of players){
+      const div=document.createElement('div');
+      div.className='playerItem';
+      div.innerHTML=`<b style="color:${clsColor(p.cls)}">${p.name}</b> · ${clsName(p.cls)} · ${p.ready?'已准备':'未准备'}`;
+      playersList.appendChild(div);
+    }
   }
 
   meInfo.textContent = me ? `我：${me.name} Lv.${me.level} HP ${me.hp}/${me.maxHp} 击杀 ${me.kills}` : '我：-';
@@ -312,8 +381,6 @@ function updateUI(){
     xpFill.style.width = '0%';
   }
 
-  chatLog.innerHTML=(state.chat||[]).map(c=>`<div><b>${c.name}：</b>${c.text}</div>`).join('');
-  chatLog.scrollTop=chatLog.scrollHeight;
   leaderboardList.innerHTML=(state.leaderboard||[]).map((e,i)=>`<div class="leaderItem"><span>${i+1}. ${e.name} (${clsName(e.cls)})</span><span>${e.cleared?'通关':'第'+e.wave+'波'} · ${e.kills}杀</span></div>`).join('');
 
   if(me?.upgradesOpen){
@@ -334,7 +401,8 @@ function updateUI(){
   // Stable button label
   const readyBtn = document.getElementById('readyBtn');
   if (readyBtn) {
-    if (!state.started && me && !me.ready) readyBtn.textContent = players.length <= 1 ? '开始游戏' : '准备开局';
+    if (state.shopping) readyBtn.textContent = '商店中';
+    else if (!state.started && me && !me.ready) readyBtn.textContent = players.length <= 1 ? '开始游戏' : '准备开局';
     else if (!state.started && me && me.ready) readyBtn.textContent = players.length <= 1 ? '取消开始' : '取消准备';
     else if (state.started) readyBtn.textContent = '已开始';
     else readyBtn.textContent = '准备 / 取消准备';
@@ -346,12 +414,30 @@ document.getElementById('createBtn').onclick=()=>{ if(!socket.connected) return 
 document.getElementById('joinBtn').onclick=()=>{ if(!socket.connected) return setMessage('当前未连接服务器，请稍后重试','error'); const code=normalizedRoomCode(); document.getElementById('roomInput').value=code; setMessage(`正在加入房间：${code||'(空)'}`,'info'); socket.emit('joinRoom',{code,name:document.getElementById('nameInput').value||'玩家',cls:document.getElementById('classInput').value}); };
 document.getElementById('readyBtn').onclick=()=>{ if(!hasSyncedMe()) return setMessage('房间数据尚未同步完成', 'error'); socket.emit('readyToggle'); };
 document.getElementById('restartBtn').onclick=()=>socket.emit('restart');
+window.buySoulShop = idx => socket.emit('buySoulShop', { index: idx });
+nextWaveBtn.onclick = () => socket.emit('nextWave');
 document.getElementById('copyInviteBtn').onclick=async()=>{ if(!state?.code) return; const txt=`来玩联机肉鸽：${location.origin}\n房间码：${state.code}`; try{ await navigator.clipboard.writeText(txt); setMessage('邀请信息已复制','ok'); } catch { setMessage(txt,'info'); } };
-document.getElementById('chatSendBtn').onclick=sendChat;
-chatInput.addEventListener('keydown',e=>{ if(e.key==='Enter') sendChat(); });
-function sendChat(){ const text=chatInput.value.trim(); if(!text) return; socket.emit('chat',{text}); chatInput.value=''; }
+function uiPump(now){
+  requestAnimationFrame(uiPump);
+  if (pendingState && uiDirty && (!lastUiPaint || now - lastUiPaint >= (1000 / PERF.uiHz))) {
+    state = pendingState;
+    pendingState = null;
+    uiDirty = false;
+    lastUiPaint = now;
+    updateUI();
+  }
+}
+requestAnimationFrame(uiPump);
 
-window.addEventListener('mousemove',e=>{ if(isTouchDevice || !canMove()) return; mouse.x=e.clientX-W/2; mouse.y=e.clientY-H/2; const len=Math.hypot(mouse.x,mouse.y)||1; mouse.x/=len; mouse.y/=len; });
+
+let lastAimMove = 0;
+window.addEventListener('mousemove',e=>{
+  if(isTouchDevice || !canMove()) return;
+  const now = performance.now();
+  if (PERF.low && now - lastAimMove < 24) return;
+  lastAimMove = now;
+  mouse.x=e.clientX-W/2; mouse.y=e.clientY-H/2; const len=Math.hypot(mouse.x,mouse.y)||1; mouse.x/=len; mouse.y/=len;
+});
 window.addEventListener('mousedown',()=>{ if(isTouchDevice || !canAttack()) return; firing=true; });
 window.addEventListener('mouseup',()=>{ if(isTouchDevice) return; firing=false; });
 
@@ -385,11 +471,10 @@ socket.on('connect_error',err=>{ setConnect('err',`连接失败：${err.message}
 socket.on('welcome',data=>{ myId=data.socketId||socket.id; if(data.leaderboard){ leaderboardList.innerHTML=data.leaderboard.map((e,i)=>`<div class="leaderItem"><span>${i+1}. ${e.name}</span><span>${e.cleared?'通关':'第'+e.wave+'波'}</span></div>`).join(''); } });
 socket.on('actionResult',info=>{ setMessage(info.message, info.ok?'ok':'error'); });
 socket.on('state',next=>{
-  // Ignore transient room snapshots that don't yet contain current player if we already had a valid self-synced room state.
   if (state && hasSyncedMe() && next && next.code === state.code && Array.isArray(next.players) && !next.players.some(p => p.id === myId)) {
     return;
   }
-  state = next;
-  updateUI();
+  pendingState = next;
+  uiDirty = true;
 });
 socket.on('errorMessage',msg=>setMessage(msg,'error'));
