@@ -25,8 +25,8 @@ npm start
 - 升级出现时角色仍可继续移动
 
 
-## 贴图资源
-- 新增原创像素角色 spritesheet：`public/assets/players.png`
-- 新增原创像素怪物 spritesheet：`public/assets/enemies.png`
-- 新增简易地表 tiles：`public/assets/tiles.png`
-- 已在客户端中直接套用
+## 真正逐帧动画版
+- 新增 players_anim.png 与 enemies_anim.png
+- 角色与怪物按 4 帧 spritesheet 播放
+- 待机与移动使用不同播放速度
+- 贴图加载失败时自动回退到原绘制方案
