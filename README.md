@@ -23,3 +23,10 @@ npm start
 - 单人也能准备后开始游戏
 - 怪物改为原创像素贴图风，不使用第三方游戏官方素材
 - 升级出现时角色仍可继续移动
+
+
+## 贴图资源
+- 新增原创像素角色 spritesheet：`public/assets/players.png`
+- 新增原创像素怪物 spritesheet：`public/assets/enemies.png`
+- 新增简易地表 tiles：`public/assets/tiles.png`
+- 已在客户端中直接套用
