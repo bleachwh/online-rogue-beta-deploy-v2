@@ -42,55 +42,20 @@ function makeEquipmentDrop(kind){
     slot, quality,
     name: names[slot][quality],
     color: equipmentQualityColor(quality),
-    set: assignSetForItem(slot),
     stats
   };
 }
-
-function assignSetForItem(slot){
-  const pool = slot==='weapon' ? ['狂战','夜行'] : slot==='armor' ? ['守御','夜行'] : ['奥术','守御'];
-  return pool[Math.floor(Math.random()*pool.length)];
-}
-function rerollItem(item){
-  const q = item.quality || item.rarity || 'common';
-  const scale = q==='epic' || q==='legendary' ? 3 : q==='rare' ? 2 : 1;
-  if (item.slot === 'weapon') item.stats = { attack: 1 + Math.floor(Math.random()*3)*scale, haste: 0.01*scale*Math.floor(Math.random()*3), speed: 0, hp: 0 };
-  else if (item.slot === 'armor') item.stats = { attack: 0, haste: 0, speed: 4*scale*Math.floor(Math.random()*2), hp: 6*scale + Math.floor(Math.random()*10)*scale };
-  else item.stats = { attack: Math.floor(Math.random()*2)*scale, haste: 0.01*scale*Math.floor(Math.random()*2), speed: 4*scale*Math.floor(Math.random()*2), hp: 4*scale*Math.floor(Math.random()*2) };
-  return item;
-}
-
-function applyMetaBuild(player){
-  const m = player.metaBuild || {attack:0,hp:0,speed:0};
-  player._metaAttack = m.attack * 1;
-  player._metaSpeed = m.speed * 6;
-  player._metaHp = m.hp * 8;
-}
-
 function applyEquipmentStats(player){
   player._eqAttack = 0; player._eqHaste = 0; player._eqSpeed = 0; player._eqHp = 0;
   const equipped = player.equipment || {};
-  const sets = {};
   for (const item of Object.values(equipped)){
     if (!item || !item.stats) continue;
     player._eqAttack += item.stats.attack || 0;
     player._eqHaste += item.stats.haste || 0;
     player._eqSpeed += item.stats.speed || 0;
     player._eqHp += item.stats.hp || 0;
-    if (item.set) sets[item.set] = (sets[item.set]||0)+1;
-  }
-  player.activeSets = [];
-  for (const [name,count] of Object.entries(sets)) {
-    if (count >= 2) {
-      player.activeSets.push({name,count});
-      if (name === '狂战') player._eqAttack += 4;
-      if (name === '守御') player._eqHp += 18;
-      if (name === '奥术') player._eqHaste += 0.02;
-      if (name === '夜行') player._eqSpeed += 14;
-    }
   }
 }
-
 
 let leaderboard = [];
 try { leaderboard = JSON.parse(fs.readFileSync(leaderboardFile, 'utf8')); } catch {}
@@ -113,7 +78,6 @@ function defaultPlayer(id,name,cls){
     x:0, y:0, aimX:1, aimY:0, hp:100, maxHp:100, level:1, xp:0, xpNeed:10,
     kills:0, gold:0, ready:false, alive:true,
     equipment:{ weapon:null, armor:null, relic:null },
-    metaBuild:{attack:0,hp:0,speed:0},
     input:{up:false,down:false,left:false,right:false,firing:false},
     upgradesOpen:false, upgradeOptions:[], invuln:0, dashCd:0, skillCd:0, shootCd:0, equipment:{ weapon:null, armor:null, relic:null }, lastPickupText:''
   };
@@ -130,7 +94,7 @@ function makeRoom(hostId,name,cls){
 function serializeRoom(room){
   return {
     code:room.code, started:room.started, ended:room.ended, wave:room.wave, waveTime:room.waveTime, waveDuration:room.waveDuration,
-    players:[...room.players.values()].map(p => ({...p, color:classStats(p.cls).color, equipment:p.equipment || { weapon:null, armor:null, relic:null }, activeSets:p.activeSets||[], metaBuild:p.metaBuild||{attack:0,hp:0,speed:0}, lastPickupText:p.lastPickupText || ''})),
+    players:[...room.players.values()].map(p => ({...p, color:classStats(p.cls).color, equipment:p.equipment || { weapon:null, armor:null, relic:null }, lastPickupText:p.lastPickupText || ''})),
     enemies:room.enemies, bullets:room.bullets, enemyBullets:room.enemyBullets, gems:room.gems, equipmentDrops:room.equipmentDrops || [], drops:room.drops,
     chat:room.chat.slice(-20), overSummary:room.overSummary, leaderboard:leaderboard.slice(0,10)
   };
@@ -224,7 +188,7 @@ function restartRoom(room){
   let offset=-70;
   for(const p of room.players.values()){
     const fresh=defaultPlayer(p.id,p.name,p.cls); const s=classStats(p.cls);
-    fresh.maxHp=s.maxHp; fresh.hp=s.maxHp; fresh.x=offset; fresh.y=0; fresh.equipment={ weapon:null, armor:null, relic:null }; applyMetaBuild(fresh); fresh.maxHp += fresh._metaHp||0; fresh.hp = fresh.maxHp; offset += 140;
+    fresh.maxHp=s.maxHp; fresh.hp=s.maxHp; fresh.x=offset; fresh.y=0; fresh.equipment={ weapon:null, armor:null, relic:null }; offset += 140;
     room.players.set(p.id,fresh);
   }
 }
@@ -235,7 +199,7 @@ function startRoom(room){
   for(const player of room.players.values()){
     const s=classStats(player.cls);
     player.x=offset; player.y=0; player.maxHp=s.maxHp; player.hp=s.maxHp; player.level=1; player.xp=0; player.xpNeed=10;
-    player.kills=0; player.gold=0; player.alive=true; player.upgradesOpen=false; player.upgradeOptions=[]; player._power=0; player._haste=0; player._speed=0; player.equipment={ weapon:null, armor:null, relic:null }; applyMetaBuild(player); applyEquipmentStats(player); player.maxHp = s.maxHp + (player._metaHp||0); player.hp = player.maxHp;
+    player.kills=0; player.gold=0; player.alive=true; player.upgradesOpen=false; player.upgradeOptions=[]; player._power=0; player._haste=0; player._speed=0; player.equipment={ weapon:null, armor:null, relic:null }; applyEquipmentStats(player); player.equipment={ weapon:null, armor:null, relic:null };
     player.invuln=0; player.dashCd=0; player.skillCd=0; player.shootCd=0;
     offset += 160;
   }
@@ -243,7 +207,7 @@ function startRoom(room){
 function updatePlayerMovement(player, dt){
   if(!player.alive) return;
   const s=classStats(player.cls);
-  const moveSpeed=s.speed+(player._speed||0)+(player._eqSpeed||0)+(player._metaSpeed||0);
+  const moveSpeed=s.speed+(player._speed||0)+(player._eqSpeed||0);
   let mx=(player.input.right?1:0)-(player.input.left?1:0), my=(player.input.down?1:0)-(player.input.up?1:0);
   const len=Math.hypot(mx,my)||1;
   player.x += mx/len*moveSpeed*dt;
@@ -266,11 +230,11 @@ function updateRoom(room, dt){
       const fireRate=Math.max(0.08,s.fireRate-(p._haste||0)-(p._eqHaste||0));
       p.shootCd=fireRate;
       if(p.cls==='swordsman'){
-        room.bullets.push({id:Math.random().toString(36).slice(2),owner:p.id,kind:'slash',x:p.x+p.aimX*24,y:p.y+p.aimY*24,vx:0,vy:0,life:0.18,r:48,dmg:s.damage+(p._power||0)+(p._eqAttack||0)+(p._metaAttack||0)});
+        room.bullets.push({id:Math.random().toString(36).slice(2),owner:p.id,kind:'slash',x:p.x+p.aimX*24,y:p.y+p.aimY*24,vx:0,vy:0,life:0.18,r:48,dmg:s.damage+(p._power||0)+(p._eqAttack||0)});
       } else if(p.cls==='mage'){
-        room.bullets.push({id:Math.random().toString(36).slice(2),owner:p.id,kind:'orb',x:p.x,y:p.y,vx:p.aimX*s.bulletSpeed,vy:p.aimY*s.bulletSpeed,life:1.4,r:8,dmg:s.damage+(p._power||0)+(p._eqAttack||0)+(p._metaAttack||0)});
+        room.bullets.push({id:Math.random().toString(36).slice(2),owner:p.id,kind:'orb',x:p.x,y:p.y,vx:p.aimX*s.bulletSpeed,vy:p.aimY*s.bulletSpeed,life:1.4,r:8,dmg:s.damage+(p._power||0)+(p._eqAttack||0)});
       } else {
-        room.bullets.push({id:Math.random().toString(36).slice(2),owner:p.id,kind:'knife',x:p.x,y:p.y,vx:p.aimX*s.bulletSpeed,vy:p.aimY*s.bulletSpeed,life:1.0,r:6,dmg:s.damage+(p._power||0)+(p._eqAttack||0)+(p._metaAttack||0)});
+        room.bullets.push({id:Math.random().toString(36).slice(2),owner:p.id,kind:'knife',x:p.x,y:p.y,vx:p.aimX*s.bulletSpeed,vy:p.aimY*s.bulletSpeed,life:1.0,r:6,dmg:s.damage+(p._power||0)+(p._eqAttack||0)});
         room.bullets.push({id:Math.random().toString(36).slice(2),owner:p.id,kind:'knife',x:p.x,y:p.y,vx:(p.aimX*0.96-p.aimY*0.18)*s.bulletSpeed,vy:(p.aimY*0.96+p.aimX*0.18)*s.bulletSpeed,life:0.95,r:5,dmg:s.damage-1+(p._power||0)});
       }
     }
@@ -415,8 +379,6 @@ io.on('connection', socket => {
     emitRoom(room);
   });
 
-  socket.on('setMetaBuild', ({attack=0,hp=0,speed=0})=>{ const room=roomForSocket(socket.id); if(!room) return; const p=room.players.get(socket.id); if(!p) return; p.metaBuild={attack:Number(attack)||0,hp:Number(hp)||0,speed:Number(speed)||0}; applyMetaBuild(p); emitRoom(room); });
-
   socket.on('readyToggle', ()=>{
     const room=roomForSocket(socket.id); if(!room) return;
     const p=room.players.get(socket.id); p.ready=!p.ready;
@@ -457,7 +419,6 @@ io.on('connection', socket => {
     const p=room.players.get(socket.id); const clean=String(text||'').trim().slice(0,120); if(!clean) return;
     room.chat.push({id:Math.random().toString(36).slice(2), name:p.name, text:clean}); emitRoom(room);
   });
-  socket.on('reforge', ({slot})=>{ const room=roomForSocket(socket.id); if(!room) return; const p=room.players.get(socket.id); if(!p||!p.equipment||!p.equipment[slot]) return; const item=p.equipment[slot]; const cost=(item.quality==='epic'||item.quality==='legendary')?80:item.quality==='rare'?40:20; if(p.gold<cost) return socket.emit('actionResult',{type:'reforge',ok:false,message:'金币不足，无法重铸'}); p.gold-=cost; p.equipment[slot]=rerollItem(item); applyEquipmentStats(p); socket.emit('actionResult',{type:'reforge',ok:true,message:`已重铸${item.name}`}); emitRoom(room); });
   socket.on('restart', ()=>{ const room=roomForSocket(socket.id); if(!room) return; restartRoom(room); emitRoom(room); });
   socket.on('disconnect', reason => {
     console.log('[disconnect]', socket.id, reason);

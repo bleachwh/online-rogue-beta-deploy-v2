@@ -12,7 +12,6 @@
       <div class="pixel-panel menu-card">
         <div class="menu-title">联机肉鸽 BETA</div>
         <p class="menu-sub">键鼠 / 触屏双端适配。现在加入：房间等待时可自由活动、单人可开局、原创像素怪物造型、升级时可边走边选。</p>
-        <div id="metaPanel" class="pixel-panel meta-panel"><h3>营地成长</h3><div id="metaShards" class="small">魂晶：0</div><div class="row stack-mobile"><button id="metaAtkBtn">攻击 +1</button><button id="metaHpBtn">生命 +1</button><button id="metaSpeedBtn">移速 +1</button></div><div id="metaInfo" class="small muted">每局结束获得魂晶，可永久强化初始属性。</div></div>
         <div class="statusLine">
           <span id="connectBadge" class="badge warn">连接中</span>
           <span id="socketText" class="muted">正在连接服务器...</span>
@@ -47,10 +46,6 @@
 
     <canvas id="game"></canvas>
 
-    <canvas id="miniMap" class="pixel-panel miniMapCanvas"></canvas>
-
-    <div id="pauseOverlay" class="overlay hidden menu-bg"><div class="pixel-panel small-card menu-card"><h2 class="menu-title" style="font-size:24px">本地暂停</h2><div class="menu-sub">按 P 继续。暂停只影响你本地的输入，不会暂停联机房间。</div></div></div>
-
     <div id="mobileControls" class="hidden">
       <div id="joystickZone"><div id="joyBase" class="hidden"></div><div id="joyStick" class="hidden"></div></div>
       <div id="mobileButtons">
@@ -62,10 +57,6 @@
 
     <div id="hud" class="hidden">
       <div class="topbar">
-        <div class="pixel-panel wave-progress-panel">
-          <div class="row wave-progress-head"><b id="waveProgressLabel">波次进度</b><span id="goldTextTop">金币 0</span></div>
-          <div class="wave-progress-outer"><div id="waveProgressFill" class="wave-progress-fill"></div></div>
-        </div>
         <div class="pixel-panel hudbox compact"><div id="waveText">第 1 波</div><div id="roomInfo">房间 ----</div></div>
         <div class="pixel-panel hudbox status-panel">
           <div class="status-row"><span id="heroBadge" class="hero-badge">剑士</span><span id="levelText">Lv.1</span></div>
@@ -92,10 +83,7 @@
       </div>
 
       <div class="pixel-panel chatWrap"><div id="chatLog" class="chatLog"></div><div class="row"><input id="chatInput" placeholder="回车发送聊天" /><button id="chatSendBtn">发送</button></div></div>
-      <div id="setsPanel" class="pixel-panel sets-panel"><h3>套装效果</h3><div id="setsBody" class="small muted">暂无激活套装</div></div>
-      <div id="blacksmithPanel" class="pixel-panel blacksmith-panel"><h3>铁匠</h3><div class="small muted">重铸当前装备，保留品质，随机洗属性</div><div class="row stack-mobile"><button id="reforgeWeaponBtn">重铸武器</button><button id="reforgeArmorBtn">重铸护甲</button><button id="reforgeRelicBtn">重铸遗物</button></div></div>
       <div class="pixel-panel leaderboard"><h3>排行榜</h3><div id="leaderboardList"></div>
-      <div id="comparePanel" class="pixel-panel compare-panel"><h3>拾取对比</h3><div id="compareBody" class="small muted">靠近装备掉落时显示对比</div></div>
       <div class="pixel-panel equipment-panel">
         <h3>装备</h3>
         <div id="equipmentList" class="equipmentList">
