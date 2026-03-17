@@ -3,20 +3,20 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Online Rogue Beta Fixed</title>
+  <title>Online Rogue Beta Adaptive v2</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
   <div id="app">
-    <div id="menu" class="panel overlay">
-      <div class="card big">
-        <h1>联机肉鸽 Beta · 修复版</h1>
-        <p>这版加入了加入房间回执、连接状态提示、明显错误信息，方便定位“朋友加入失败”的问题。</p>
+    <div id="menu" class="overlay menu-bg">
+      <div class="pixel-panel menu-card">
+        <div class="menu-title">联机肉鸽 BETA</div>
+        <p class="menu-sub">键鼠 / 触屏双端适配。现在加入：等待阶段不可移动、血量经验 HUD、职业差异化形象、侧边升级栏、像素块风格菜单。</p>
         <div class="statusLine">
           <span id="connectBadge" class="badge warn">连接中</span>
           <span id="socketText" class="muted">正在连接服务器...</span>
         </div>
-        <div class="row">
+        <div class="row stack-mobile">
           <input id="nameInput" placeholder="你的名字" value="玩家" />
           <select id="classInput">
             <option value="swordsman">剑士</option>
@@ -24,46 +24,66 @@
             <option value="rogue">盗贼</option>
           </select>
         </div>
-        <div class="row">
+        <div class="row stack-mobile">
           <button id="createBtn">创建房间</button>
           <input id="roomInput" placeholder="输入房间码" maxlength="8" />
           <button id="joinBtn">加入房间</button>
         </div>
         <div id="menuMsg" class="message"></div>
-        <div class="tips">
-          <span>WASD 移动</span><span>鼠标瞄准</span><span>按住左键攻击</span><span>Space 冲刺</span><span>Q 主动技能</span><span>1/2/3 选升级</span>
+        <div class="tips minecraft-tips">
+          <span>WASD / 方向键移动</span><span>鼠标或右半屏瞄准</span><span>按住攻击</span><span>Space / 冲刺按钮</span><span>Q / 技能按钮</span><span>1/2/3 选升级</span>
         </div>
       </div>
     </div>
-    <div id="roomPanel" class="panel hidden side">
+
+    <div id="roomPanel" class="pixel-panel hidden side waiting-panel">
       <div class="roomHead"><div><div class="label">房间码</div><div id="roomCode" class="roomCode">----</div></div><button id="copyInviteBtn">复制邀请信息</button></div>
       <div class="small muted" id="roomDebug">等待房间状态...</div>
       <div id="playersList" class="playersList"></div>
       <button id="readyBtn">准备 / 取消准备</button>
-      <div class="muted small">两名玩家都准备后自动开局。</div>
+      <div class="muted small">等待阶段无法移动。两名玩家都准备后自动开局。</div>
     </div>
+
     <canvas id="game"></canvas>
 
     <div id="mobileControls" class="hidden">
-      <div id="joystickZone">
-        <div id="joyBase" class="hidden"></div>
-        <div id="joyStick" class="hidden"></div>
-      </div>
+      <div id="joystickZone"><div id="joyBase" class="hidden"></div><div id="joyStick" class="hidden"></div></div>
       <div id="mobileButtons">
         <button id="touchSkillBtn" class="touchBtn">技能<br><span>Q</span></button>
         <button id="touchDashBtn" class="touchBtn big">冲刺<br><span>Space</span></button>
       </div>
-      <div id="mobileHint" class="panel mobileHint hidden">左手摇杆移动，右侧长按攻击，点按钮释放冲刺和技能</div>
+      <div id="mobileHint" class="pixel-panel mobileHint hidden">左手摇杆移动，右侧长按攻击，按钮释放冲刺和技能</div>
     </div>
+
     <div id="hud" class="hidden">
       <div class="topbar">
-        <div class="panel hudbox"><div id="waveText">第 1 波</div><div id="roomInfo">房间 ----</div></div>
-        <div class="panel hudbox"><div id="meInfo">我：-</div><div id="teamInfo">队友：-</div></div>
+        <div class="pixel-panel hudbox compact"><div id="waveText">第 1 波</div><div id="roomInfo">房间 ----</div></div>
+        <div class="pixel-panel hudbox status-panel">
+          <div class="status-row"><span id="heroBadge" class="hero-badge">剑士</span><span id="levelText">Lv.1</span></div>
+          <div class="bar-label"><span>生命</span><span id="hpText">100/100</span></div>
+          <div class="bar"><div id="hpFill" class="fill hp"></div></div>
+          <div class="bar-label"><span>经验</span><span id="xpText">0/10</span></div>
+          <div class="bar"><div id="xpFill" class="fill xp"></div></div>
+        </div>
+        <div class="pixel-panel hudbox compact"><div id="meInfo">我：-</div><div id="teamInfo">队友：-</div></div>
       </div>
-      <div id="upgrades" class="overlay hidden"><div class="card big"><h2>升级</h2><div id="upgradeList" class="upgradeList"></div><p class="muted">按 1 / 2 / 3 选择。</p></div></div>
-      <div id="summary" class="overlay hidden"><div class="card big"><h2 id="summaryTitle">对局结束</h2><div id="summaryBody"></div><button id="restartBtn">重开房间</button></div></div>
-      <div class="panel chatWrap"><div id="chatLog" class="chatLog"></div><div class="row"><input id="chatInput" placeholder="回车发送聊天" /><button id="chatSendBtn">发送</button></div></div>
-      <div class="panel leaderboard"><h3>排行榜</h3><div id="leaderboardList"></div></div>
+
+      <div id="upgrades" class="pixel-panel side-upgrades hidden">
+        <h3>升级选择</h3>
+        <div id="upgradeList" class="upgradeList"></div>
+        <p class="muted small">键盘按 1 / 2 / 3，手机直接点选。</p>
+      </div>
+
+      <div id="summary" class="overlay hidden">
+        <div class="pixel-panel menu-card small-card">
+          <h2 id="summaryTitle">对局结束</h2>
+          <div id="summaryBody"></div>
+          <button id="restartBtn">重开房间</button>
+        </div>
+      </div>
+
+      <div class="pixel-panel chatWrap"><div id="chatLog" class="chatLog"></div><div class="row"><input id="chatInput" placeholder="回车发送聊天" /><button id="chatSendBtn">发送</button></div></div>
+      <div class="pixel-panel leaderboard"><h3>排行榜</h3><div id="leaderboardList"></div></div>
     </div>
   </div>
   <script src="/socket.io/socket.io.js"></script>
