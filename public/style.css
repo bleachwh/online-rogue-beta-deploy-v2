@@ -38,3 +38,24 @@ button { cursor: pointer; background: linear-gradient(180deg,#88efb8,#60cb90); c
 .upgradeBtn { width: 100%; text-align: left; }
 #summaryBody { display: grid; gap: 10px; margin: 14px 0; }
 @media (max-width: 840px) { .side { width: calc(100vw - 24px); } .leaderboard { width: calc(100vw - 24px); left: 12px; right: 12px; } .chatWrap { width: calc(100vw - 24px); bottom: 220px; } .topbar { flex-direction: column; } }
+
+
+#mobileControls { position: absolute; inset: 0; z-index: 6; pointer-events: none; }
+#joystickZone { position: absolute; left: 0; bottom: 0; width: 44vw; height: 38vh; pointer-events: auto; touch-action: none; }
+#joyBase, #joyStick { position: absolute; border-radius: 50%; pointer-events: none; }
+#joyBase { width: 122px; height: 122px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.12); }
+#joyStick { width: 58px; height: 58px; background: rgba(255,255,255,.24); border: 1px solid rgba(255,255,255,.18); }
+#mobileButtons { position: absolute; right: 14px; bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); display: flex; gap: 12px; align-items: flex-end; pointer-events: auto; }
+.touchBtn { min-width: 84px; min-height: 84px; border-radius: 50%; padding: 0 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(255,255,255,.12); color: var(--text); border: 1px solid rgba(255,255,255,.12); backdrop-filter: blur(10px); }
+.touchBtn.big { min-width: 96px; min-height: 96px; }
+.touchBtn span { font-size: 11px; color: var(--muted); margin-top: 4px; }
+.mobileHint { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 120px); max-width: min(90vw, 420px); padding: 10px 14px; text-align: center; font-size: 13px; }
+body.mobile-mode { overscroll-behavior: none; touch-action: manipulation; }
+body.mobile-mode .chatWrap, body.mobile-mode .leaderboard { width: min(340px, calc(100vw - 24px)); }
+body.mobile-mode .side { width: min(360px, calc(100vw - 24px)); }
+@media (pointer: coarse), (max-width: 840px) {
+  body.mobile-mode .tips span:nth-child(-n+3) { display: none; }
+  body.mobile-mode .topbar { top: calc(env(safe-area-inset-top, 0px) + 8px); }
+  body.mobile-mode .chatWrap { bottom: calc(env(safe-area-inset-bottom, 0px) + 132px); }
+  body.mobile-mode .leaderboard { bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); }
+}

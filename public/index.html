@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Online Rogue Beta Fixed</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
@@ -43,6 +43,18 @@
       <div class="muted small">两名玩家都准备后自动开局。</div>
     </div>
     <canvas id="game"></canvas>
+
+    <div id="mobileControls" class="hidden">
+      <div id="joystickZone">
+        <div id="joyBase" class="hidden"></div>
+        <div id="joyStick" class="hidden"></div>
+      </div>
+      <div id="mobileButtons">
+        <button id="touchSkillBtn" class="touchBtn">技能<br><span>Q</span></button>
+        <button id="touchDashBtn" class="touchBtn big">冲刺<br><span>Space</span></button>
+      </div>
+      <div id="mobileHint" class="panel mobileHint hidden">左手摇杆移动，右侧长按攻击，点按钮释放冲刺和技能</div>
+    </div>
     <div id="hud" class="hidden">
       <div class="topbar">
         <div class="panel hudbox"><div id="waveText">第 1 波</div><div id="roomInfo">房间 ----</div></div>

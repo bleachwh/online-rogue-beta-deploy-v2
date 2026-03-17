@@ -8,11 +8,76 @@ const chatLog = document.getElementById('chatLog'), chatInput = document.getElem
 const upgrades = document.getElementById('upgrades'), upgradeList = document.getElementById('upgradeList');
 const summary = document.getElementById('summary'), summaryTitle = document.getElementById('summaryTitle'), summaryBody = document.getElementById('summaryBody');
 let W=0,H=0,DPR=Math.min(window.devicePixelRatio||1,2), state=null, myId=null, mouse={x:1,y:0}, firing=false, keys={up:false,down:false,left:false,right:false};
+const isTouchDevice = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+const mobileControls = document.getElementById('mobileControls');
+const joystickZone = document.getElementById('joystickZone');
+const joyBase = document.getElementById('joyBase');
+const joyStick = document.getElementById('joyStick');
+const touchDashBtn = document.getElementById('touchDashBtn');
+const touchSkillBtn = document.getElementById('touchSkillBtn');
+const mobileHint = document.getElementById('mobileHint');
+const touchState = { active:false, id:null, ox:0, oy:0, attackId:null };
+if (isTouchDevice) { document.body.classList.add('mobile-mode'); mobileControls.classList.remove('hidden'); setTimeout(()=>mobileHint.classList.add('hidden'), 6000); }
 function resize(){ W=window.innerWidth; H=window.innerHeight; canvas.width=W*DPR; canvas.height=H*DPR; canvas.style.width=W+'px'; canvas.style.height=H+'px'; ctx.setTransform(DPR,0,0,DPR,0,0); }
 window.addEventListener('resize', resize); resize();
 function setMessage(text,type='info'){ menuMsg.textContent=text||''; menuMsg.style.color=type==='error'?'#ffb0ba':type==='ok'?'#93f1bd':'#aab6d6'; }
 function setConnect(status,text){ connectBadge.className='badge '+(status==='ok'?'ok':status==='err'?'err':'warn'); connectBadge.textContent=status==='ok'?'已连接':status==='err'?'已断开':'连接中'; socketText.textContent=text; }
 function normalizedRoomCode(){ return String(document.getElementById('roomInput').value||'').trim().toUpperCase().replace(/[^A-Z0-9]/g,''); }
+
+function setMoveKeysFromVector(nx, ny) {
+  const threshold = 0.2;
+  keys.left = nx < -threshold; keys.right = nx > threshold;
+  keys.up = ny < -threshold; keys.down = ny > threshold;
+}
+function releaseTouchMove() {
+  touchState.active = false; touchState.id = null;
+  setMoveKeysFromVector(0,0);
+  joyBase.classList.add('hidden'); joyStick.classList.add('hidden');
+}
+function setAimFromClientPoint(x, y) {
+  mouse.x = x - W / 2; mouse.y = y - H / 2;
+  const len = Math.hypot(mouse.x, mouse.y) || 1;
+  mouse.x /= len; mouse.y /= len;
+}
+if (isTouchDevice) {
+  joystickZone.addEventListener('pointerdown', e => {
+    touchState.active = true; touchState.id = e.pointerId; touchState.ox = e.clientX; touchState.oy = e.clientY;
+    joyBase.classList.remove('hidden'); joyStick.classList.remove('hidden');
+    joyBase.style.left = (e.clientX - 61) + 'px'; joyBase.style.top = (e.clientY - 61) + 'px';
+    joyStick.style.left = (e.clientX - 29) + 'px'; joyStick.style.top = (e.clientY - 29) + 'px';
+  });
+  joystickZone.addEventListener('pointermove', e => {
+    if (!touchState.active || e.pointerId !== touchState.id) return;
+    const dx = e.clientX - touchState.ox, dy = e.clientY - touchState.oy;
+    const max = 42, len = Math.hypot(dx, dy) || 1;
+    const nx = len > max ? dx / len * max : dx, ny = len > max ? dy / len * max : dy;
+    joyStick.style.left = (touchState.ox + nx - 29) + 'px';
+    joyStick.style.top = (touchState.oy + ny - 29) + 'px';
+    setMoveKeysFromVector(nx / max, ny / max);
+  });
+  const endJoy = e => { if (touchState.id !== null && e.pointerId !== touchState.id) return; releaseTouchMove(); };
+  joystickZone.addEventListener('pointerup', endJoy);
+  joystickZone.addEventListener('pointercancel', endJoy);
+
+  canvas.addEventListener('pointerdown', e => {
+    if (e.clientX < W * 0.45) return;
+    touchState.attackId = e.pointerId;
+    setAimFromClientPoint(e.clientX, e.clientY);
+    firing = true;
+  });
+  canvas.addEventListener('pointermove', e => {
+    if (touchState.attackId !== e.pointerId) return;
+    setAimFromClientPoint(e.clientX, e.clientY);
+    firing = true;
+  });
+  const endAttack = e => { if (touchState.attackId !== e.pointerId) return; touchState.attackId = null; firing = false; };
+  canvas.addEventListener('pointerup', endAttack);
+  canvas.addEventListener('pointercancel', endAttack);
+
+  touchDashBtn.addEventListener('click', () => socket.emit('dash'));
+  touchSkillBtn.addEventListener('click', () => socket.emit('skill'));
+}
+
 function sendInput(){ if(!socket.connected) return; socket.emit('input',{ input:{...keys,firing}, aimX:mouse.x, aimY:mouse.y }); }
 setInterval(sendInput, 1000/20);
 const clsName=cls=>cls==='mage'?'魔法师':cls==='rogue'?'盗贼':'剑士'; const clsColor=cls=>cls==='mage'?'#84b9ff':cls==='rogue'?'#ffd76f':'#78e7ac';
@@ -30,7 +95,7 @@ document.getElementById('createBtn').onclick=()=>{ if(!socket.connected) return 
 document.getElementById('joinBtn').onclick=()=>{ if(!socket.connected) return setMessage('当前未连接服务器，请稍后重试','error'); const code=normalizedRoomCode(); document.getElementById('roomInput').value=code; setMessage(`正在加入房间：${code||'(空)'}`,'info'); socket.emit('joinRoom',{code,name:document.getElementById('nameInput').value||'玩家',cls:document.getElementById('classInput').value}); };
 document.getElementById('readyBtn').onclick=()=>socket.emit('readyToggle'); document.getElementById('restartBtn').onclick=()=>socket.emit('restart'); document.getElementById('copyInviteBtn').onclick=async()=>{ if(!state?.code) return; const txt=`来玩联机肉鸽：${location.origin}\n房间码：${state.code}`; try{ await navigator.clipboard.writeText(txt); setMessage('邀请信息已复制','ok'); } catch { setMessage(txt,'info'); } };
 document.getElementById('chatSendBtn').onclick=sendChat; chatInput.addEventListener('keydown',e=>{ if(e.key==='Enter') sendChat(); }); function sendChat(){ const text=chatInput.value.trim(); if(!text) return; socket.emit('chat',{text}); chatInput.value=''; }
-window.addEventListener('mousemove',e=>{ mouse.x=e.clientX-W/2; mouse.y=e.clientY-H/2; const len=Math.hypot(mouse.x,mouse.y)||1; mouse.x/=len; mouse.y/=len; }); window.addEventListener('mousedown',()=>{firing=true;}); window.addEventListener('mouseup',()=>{firing=false;});
+window.addEventListener('mousemove',e=>{ if(isTouchDevice) return; mouse.x=e.clientX-W/2; mouse.y=e.clientY-H/2; const len=Math.hypot(mouse.x,mouse.y)||1; mouse.x/=len; mouse.y/=len; }); window.addEventListener('mousedown',()=>{ if(isTouchDevice) return; firing=true;}); window.addEventListener('mouseup',()=>{ if(isTouchDevice) return; firing=false;});
 window.addEventListener('keydown',e=>{ const k=e.key.toLowerCase(); if(k==='w'||e.key==='ArrowUp') keys.up=true; if(k==='s'||e.key==='ArrowDown') keys.down=true; if(k==='a'||e.key==='ArrowLeft') keys.left=true; if(k==='d'||e.key==='ArrowRight') keys.right=true; if(e.code==='Space') socket.emit('dash'); if(k==='q') socket.emit('skill'); if(k==='1'||k==='2'||k==='3'){ const me=state?.players?.find(p=>p.id===myId); if(me?.upgradesOpen){ const option=me.upgradeOptions[Number(k)-1]; if(option) socket.emit('pickUpgrade',{key:option.key}); } } });
 window.addEventListener('keyup',e=>{ const k=e.key.toLowerCase(); if(k==='w'||e.key==='ArrowUp') keys.up=false; if(k==='s'||e.key==='ArrowDown') keys.down=false; if(k==='a'||e.key==='ArrowLeft') keys.left=false; if(k==='d'||e.key==='ArrowRight') keys.right=false; });
 socket.on('connect',()=>{ myId=socket.id; setConnect('ok',`已连接服务器，Socket ID：${socket.id}`); setMessage('连接服务器成功','ok'); });
