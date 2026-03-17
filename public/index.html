@@ -3,15 +3,19 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Online Rogue Beta Deploy</title>
+  <title>Online Rogue Beta Fixed</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
   <div id="app">
     <div id="menu" class="panel overlay">
       <div class="card big">
-        <h1>联机肉鸽 Beta</h1>
-        <p>可直接部署到 Railway / Render。创建房间后，把网址和房间码发给朋友即可。</p>
+        <h1>联机肉鸽 Beta · 修复版</h1>
+        <p>这版加入了加入房间回执、连接状态提示、明显错误信息，方便定位“朋友加入失败”的问题。</p>
+        <div class="statusLine">
+          <span id="connectBadge" class="badge warn">连接中</span>
+          <span id="socketText" class="muted">正在连接服务器...</span>
+        </div>
         <div class="row">
           <input id="nameInput" placeholder="你的名字" value="玩家" />
           <select id="classInput">
@@ -22,79 +26,34 @@
         </div>
         <div class="row">
           <button id="createBtn">创建房间</button>
-          <input id="roomInput" placeholder="输入房间码" maxlength="4" />
+          <input id="roomInput" placeholder="输入房间码" maxlength="8" />
           <button id="joinBtn">加入房间</button>
         </div>
-        <div id="menuMsg" class="muted"></div>
+        <div id="menuMsg" class="message"></div>
         <div class="tips">
-          <span>WASD 移动</span>
-          <span>鼠标瞄准</span>
-          <span>按住左键攻击</span>
-          <span>Space 冲刺</span>
-          <span>Q 主动技能</span>
-          <span>1/2/3 选升级</span>
+          <span>WASD 移动</span><span>鼠标瞄准</span><span>按住左键攻击</span><span>Space 冲刺</span><span>Q 主动技能</span><span>1/2/3 选升级</span>
         </div>
       </div>
     </div>
-
     <div id="roomPanel" class="panel hidden side">
-      <div class="roomHead">
-        <div>
-          <div class="label">房间码</div>
-          <div id="roomCode" class="roomCode">----</div>
-        </div>
-        <button id="copyInviteBtn">复制邀请信息</button>
-      </div>
+      <div class="roomHead"><div><div class="label">房间码</div><div id="roomCode" class="roomCode">----</div></div><button id="copyInviteBtn">复制邀请信息</button></div>
+      <div class="small muted" id="roomDebug">等待房间状态...</div>
       <div id="playersList" class="playersList"></div>
       <button id="readyBtn">准备 / 取消准备</button>
       <div class="muted small">两名玩家都准备后自动开局。</div>
     </div>
-
     <canvas id="game"></canvas>
-
     <div id="hud" class="hidden">
       <div class="topbar">
-        <div class="panel hudbox">
-          <div id="waveText">第 1 波</div>
-          <div id="roomInfo">房间 ----</div>
-        </div>
-        <div class="panel hudbox">
-          <div id="meInfo">我：-</div>
-          <div id="teamInfo">队友：-</div>
-        </div>
+        <div class="panel hudbox"><div id="waveText">第 1 波</div><div id="roomInfo">房间 ----</div></div>
+        <div class="panel hudbox"><div id="meInfo">我：-</div><div id="teamInfo">队友：-</div></div>
       </div>
-
-      <div id="upgrades" class="overlay hidden">
-        <div class="card big">
-          <h2>升级</h2>
-          <div id="upgradeList" class="upgradeList"></div>
-          <p class="muted">按 1 / 2 / 3 选择。</p>
-        </div>
-      </div>
-
-      <div id="summary" class="overlay hidden">
-        <div class="card big">
-          <h2 id="summaryTitle">对局结束</h2>
-          <div id="summaryBody"></div>
-          <button id="restartBtn">重开房间</button>
-        </div>
-      </div>
-
-      <div class="panel chatWrap">
-        <div id="chatLog" class="chatLog"></div>
-        <div class="row">
-          <input id="chatInput" placeholder="回车发送聊天" />
-          <button id="chatSendBtn">发送</button>
-        </div>
-      </div>
-
-      <div class="panel leaderboard">
-        <h3>排行榜</h3>
-        <div id="leaderboardList"></div>
-      </div>
+      <div id="upgrades" class="overlay hidden"><div class="card big"><h2>升级</h2><div id="upgradeList" class="upgradeList"></div><p class="muted">按 1 / 2 / 3 选择。</p></div></div>
+      <div id="summary" class="overlay hidden"><div class="card big"><h2 id="summaryTitle">对局结束</h2><div id="summaryBody"></div><button id="restartBtn">重开房间</button></div></div>
+      <div class="panel chatWrap"><div id="chatLog" class="chatLog"></div><div class="row"><input id="chatInput" placeholder="回车发送聊天" /><button id="chatSendBtn">发送</button></div></div>
+      <div class="panel leaderboard"><h3>排行榜</h3><div id="leaderboardList"></div></div>
     </div>
   </div>
-
   <script src="/socket.io/socket.io.js"></script>
   <script src="/client.js"></script>
 </body>

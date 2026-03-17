@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: online-rogue-beta-deploy
+    name: online-rogue-beta-deploy-fixed
     env: node
     plan: free
     buildCommand: npm install

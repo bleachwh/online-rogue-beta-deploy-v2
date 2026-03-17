@@ -1,8 +1,8 @@
 {
-  "name": "online-rogue-beta-deploy",
-  "version": "1.0.0",
+  "name": "online-rogue-beta-deploy-fixed",
+  "version": "1.1.0",
   "private": true,
-  "description": "Deploy-ready 2-player online roguelite beta for Railway/Render",
+  "description": "Deploy-ready 2-player online roguelite beta with join/debug fixes",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
