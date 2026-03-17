@@ -1,16 +1,14 @@
 const socket = io({ transports: ['websocket', 'polling'], timeout: 10000 });
-const spriteAssets = { players: new Image(), enemies: new Image(), tiles: new Image(), equipment: new Image() };
+const spriteAssets = { players: new Image(), enemies: new Image(), tiles: new Image() };
 let spritesReady = false;
 let spriteLoadCount = 0;
-function markSpriteLoaded(){ spriteLoadCount += 1; if(spriteLoadCount >= 4) spritesReady = true; }
+function markSpriteLoaded(){ spriteLoadCount += 1; if(spriteLoadCount >= 3) spritesReady = true; }
 spriteAssets.players.src = '/assets/players_states.png';
 spriteAssets.enemies.src = '/assets/enemies_states.png';
 spriteAssets.tiles.src = '/assets/tiles_anim.png';
-spriteAssets.equipment.src = '/assets/equipment_icons.png';
 spriteAssets.players.onload = markSpriteLoaded;
 spriteAssets.enemies.onload = markSpriteLoaded;
 spriteAssets.tiles.onload = markSpriteLoaded;
-spriteAssets.equipment.onload = markSpriteLoaded;
 
 const playerAnimState = new Map();
 const enemyAnimState = new Map();
@@ -23,14 +21,6 @@ function playerBaseRow(cls){ return cls==='mage' ? 1 : cls==='rogue' ? 2 : 0; }
 function stateOffset(state){ return state==='idle' ? 0 : state==='walk' ? 1 : state==='attack' ? 2 : state==='hit' ? 3 : 4; }
 function playerRow(cls, state){ return playerBaseRow(cls) * 5 + stateOffset(state); }
 function enemyRow(sprite, state){ return enemyBaseRow(sprite) * 5 + stateOffset(state); }
-function qualityColor(q){ return q==='epic' ? '#c878ff' : q==='rare' ? '#6bb7ff' : '#d7d7df'; }
-function equipmentIconIndex(item){
-  if (!item) return 0;
-  if (item.slot === 'weapon') return item.quality === 'epic' ? 2 : item.quality === 'rare' ? 1 : 0;
-  if (item.slot === 'armor') return item.quality === 'rare' ? 4 : 3;
-  return 5;
-}
-
 
 function updateFacingFromAim(id, aimX, fallback='right', mapRef=playerFacingState){
   const prev = mapRef.get(id) || fallback;
@@ -78,15 +68,6 @@ const upgrades = document.getElementById('upgrades'), upgradeList = document.get
 const summary = document.getElementById('summary'), summaryTitle = document.getElementById('summaryTitle'), summaryBody = document.getElementById('summaryBody');
 const heroBadge = document.getElementById('heroBadge'), levelText = document.getElementById('levelText'), hpText = document.getElementById('hpText'), xpText = document.getElementById('xpText');
 const hpFill = document.getElementById('hpFill'), xpFill = document.getElementById('xpFill');
-
-const equipmentPanel = document.getElementById('equipmentPanel');
-const equipWeapon = document.getElementById('equipWeapon');
-const equipArmor = document.getElementById('equipArmor');
-const equipRelic = document.getElementById('equipRelic');
-const lootPrompt = document.getElementById('lootPrompt');
-
-const readyBtn = document.getElementById('readyBtn');
-
 let W=0,H=0,DPR=Math.min(window.devicePixelRatio||1,2), state=null, myId=null, mouse={x:1,y:0}, firing=false, keys={up:false,down:false,left:false,right:false};
 const isTouchDevice = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 const mobileControls = document.getElementById('mobileControls');
@@ -106,9 +87,12 @@ function setConnect(status,text){ connectBadge.className='badge '+(status==='ok'
 function normalizedRoomCode(){ return String(document.getElementById('roomInput').value||'').trim().toUpperCase().replace(/[^A-Z0-9]/g,''); }
 function clsName(cls){ return cls==='mage'?'魔法师':cls==='rogue'?'盗贼':'剑士'; }
 function clsColor(cls){ return cls==='mage'?'#84b9ff':cls==='rogue'?'#ffd76f':'#78e7ac'; }
-function rarityClass(r){ return r==='legendary' ? 'equipLegendary' : r==='rare' ? 'equipRare' : 'equipCommon'; }
-function equipLabel(item){ return item ? item.name : '-'; }
 function getMe(){ return state?.players?.find(p=>p.id===myId) || null; }
+
+function hasSyncedMe(){ return !!(state && Array.isArray(state.players) && state.players.some(p => p.id === myId)); }
+function showRoomUI(){ roomPanel.classList.remove('hidden'); hud.classList.remove('hidden'); menu.classList.add('hidden'); }
+function showMenuUI(){ roomPanel.classList.add('hidden'); hud.classList.add('hidden'); menu.classList.remove('hidden'); }
+
 // Allow free movement in room and during upgrades; only block if ended/dead.
 function canMove(){ const me=getMe(); return !!(me && me.alive && !state?.ended); }
 function canAttack(){ const me=getMe(); return !!(state?.started && me && me.alive && !state?.ended); }
@@ -263,40 +247,14 @@ function drawBullet(me,b,enemy=false){
   ctx.beginPath(); ctx.fillStyle=enemy?'#ff8ca0':(b.kind==='knife'?'#ffd76f':'#9fd1ff'); ctx.arc(pos.x,pos.y,b.r,0,Math.PI*2); ctx.fill();
 }
 function drawGem(me,g){ const pos=worldToScreen(me,g.x,g.y); ctx.beginPath(); ctx.fillStyle='#6ac8ff'; ctx.arc(pos.x,pos.y,5,0,Math.PI*2); ctx.fill(); }
-function drawEquipmentDrop(me,item){
-  const pos = worldToScreen(me, item.x, item.y);
-  ctx.save();
-  ctx.translate(pos.x, pos.y);
-  ctx.fillStyle = 'rgba(0,0,0,.22)';
-  ctx.beginPath(); ctx.ellipse(0, 14, 11, 5, 0, 0, Math.PI*2); ctx.fill();
-  if (spritesReady) {
-    const idx = equipmentIconIndex(item);
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(spriteAssets.equipment, idx*32, 0, 32, 32, -16, -16, 32, 32);
-  } else {
-    ctx.fillStyle = qualityColor(item.quality);
-    ctx.fillRect(-8, -8, 16, 16);
-  }
-  ctx.strokeStyle = qualityColor(item.quality);
-  ctx.lineWidth = 2;
-  ctx.strokeRect(-12, -12, 24, 24);
-  ctx.restore();
-}
-function drawDrop(me,d){ const pos=worldToScreen(me,d.x,d.y); const color=d.rarity==='legendary'?'#ffd76d':d.rarity==='rare'?'#76c7ff':'#e9eefc'; ctx.save(); ctx.translate(pos.x,pos.y); ctx.strokeStyle=color; ctx.lineWidth=2; ctx.strokeRect(-7,-7,14,14); ctx.fillStyle=color+'88'; ctx.fillRect(-4,-4,8,8); ctx.restore(); }
 function render(){
   requestAnimationFrame(render); ctx.clearRect(0,0,W,H);
   if(!state || !state.players?.length) return;
-  const me=state.players.find(p=>p.id===myId)||state.players[0];
-  if(!me){
-    ctx.fillStyle='#10233f'; ctx.fillRect(0,0,W,H);
-    ctx.fillStyle='#cfe6ff'; ctx.font='16px sans-serif'; ctx.fillText('正在同步房间数据...', 24, 36);
-    return;
-  }
+  const me = hasSyncedMe() ? state.players.find(p=>p.id===myId) : null;
+  if(!me) return;
   const bg=ctx.createLinearGradient(0,0,0,H); bg.addColorStop(0,'#22405f'); bg.addColorStop(.55,'#29462f'); bg.addColorStop(1,'#1b2a19'); ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
   drawGrid(me); drawWorldDecor(me);
   for(const g of state.gems||[]) drawGem(me,g);
-  for(const item of state.equipmentDrops||[]) drawEquipmentDrop(me,item);
-  for(const d of state.drops||[]) drawDrop(me,d);
   for(const b of state.bullets||[]) drawBullet(me,b,false);
   for(const b of state.enemyBullets||[]) drawBullet(me,b,true);
   for(const e of state.enemies||[]) drawEnemy(me,e);
@@ -305,58 +263,88 @@ function render(){
 render();
 
 function updateUI(){
-  if(!state) return;
-  const me=state.players.find(p=>p.id===myId); const other=state.players.find(p=>p.id!==myId);
-  roomCodeEl.textContent=state.code||'----'; roomInfo.textContent=`房间 ${state.code||'----'}`;
-  roomDebug.textContent=`房间玩家数：${state.players.length} · 已开始：${state.started?'是':'否'}${state.started?'':' · 现在可自由活动'}${state.players.length===1 && !state.started ? ' · 单人可直接准备开始' : ''}`;
-  waveText.textContent=`第 ${state.wave} 波`;
-  if (readyBtn) readyBtn.textContent = state.started ? '已开始' : (me?.ready ? '取消准备' : (state.players.length<=1 ? '开始游戏' : '准备开局'));
-  playersList.innerHTML='';
-  for(const p of state.players){
-    const div=document.createElement('div'); div.className='playerItem';
+  if(!state) { showMenuUI(); return; }
+
+  const players = Array.isArray(state.players) ? state.players : [];
+  const me = players.find(p=>p.id===myId) || null;
+  const other = players.find(p=>p.id!==myId) || null;
+
+  // Only enter room HUD after current player is actually synced into room.
+  if(state.code && !me){
+    showMenuUI();
+    setMessage(`正在同步房间 ${state.code} 数据...`, 'info');
+    return;
+  }
+
+  if(state.code && me) showRoomUI();
+  else showMenuUI();
+
+  roomCodeEl.textContent = state.code || '----';
+  roomInfo.textContent = `房间 ${state.code || '----'}`;
+  roomDebug.textContent = `房间玩家数：${players.length} · 已开始：${state.started?'是':'否'} · 方向动画已启用${state.started?'':' · 现在可自由活动'}${players.length===1 && !state.started ? ' · 单人可直接准备开始' : ''}`;
+  waveText.textContent = `第 ${state.wave} 波`;
+
+  playersList.innerHTML = '';
+  for(const p of players){
+    const div=document.createElement('div');
+    div.className='playerItem';
     div.innerHTML=`<b style="color:${clsColor(p.cls)}">${p.name}</b> · ${clsName(p.cls)} · ${p.ready?'已准备':'未准备'}`;
     playersList.appendChild(div);
   }
-  meInfo.textContent=me?`我：${me.name} Lv.${me.level} HP ${me.hp}/${me.maxHp} 击杀 ${me.kills}`:'我：-';
-  teamInfo.textContent=other?`队友：${other.name} Lv.${other.level} HP ${other.hp}/${other.maxHp} 击杀 ${other.kills}`:'队友：等待加入';
+
+  meInfo.textContent = me ? `我：${me.name} Lv.${me.level} HP ${me.hp}/${me.maxHp} 击杀 ${me.kills}` : '我：-';
+  teamInfo.textContent = other ? `队友：${other.name} Lv.${other.level} HP ${other.hp}/${other.maxHp} 击杀 ${other.kills}` : '队友：等待加入';
+
   if(me){
-    heroBadge.textContent=clsName(me.cls); heroBadge.style.color=clsColor(me.cls); levelText.textContent=`Lv.${me.level}`;
-    hpText.textContent=`${me.hp}/${me.maxHp}`; xpText.textContent=`${me.xp}/${me.xpNeed}`;
-    hpFill.style.width=`${Math.max(0,Math.min(100,me.hp/me.maxHp*100))}%`;
-    xpFill.style.width=`${Math.max(0,Math.min(100,me.xp/me.xpNeed*100))}%`;
-    const weapon=me.equipment?.weapon, armor=me.equipment?.armor, relic=me.equipment?.relic;
-    equipWeapon.textContent=equipLabel(weapon); equipWeapon.className=rarityClass(weapon?.rarity);
-    equipArmor.textContent=equipLabel(armor); equipArmor.className=rarityClass(armor?.rarity);
-    equipRelic.textContent=equipLabel(relic); equipRelic.className=rarityClass(relic?.rarity);
+    heroBadge.textContent = clsName(me.cls);
+    heroBadge.style.color = clsColor(me.cls);
+    levelText.textContent = `Lv.${me.level}`;
+    hpText.textContent = `${me.hp}/${me.maxHp}`;
+    xpText.textContent = `${me.xp}/${me.xpNeed}`;
+    hpFill.style.width = `${Math.max(0,Math.min(100,me.hp/me.maxHp*100))}%`;
+    xpFill.style.width = `${Math.max(0,Math.min(100,me.xp/me.xpNeed*100))}%`;
+  } else {
+    heroBadge.textContent = '-';
+    levelText.textContent = 'Lv.-';
+    hpText.textContent = '-';
+    xpText.textContent = '-';
+    hpFill.style.width = '0%';
+    xpFill.style.width = '0%';
   }
-  chatLog.innerHTML=(state.chat||[]).map(c=>`<div><b>${c.name}：</b>${c.text}</div>`).join(''); chatLog.scrollTop=chatLog.scrollHeight;
+
+  chatLog.innerHTML=(state.chat||[]).map(c=>`<div><b>${c.name}：</b>${c.text}</div>`).join('');
+  chatLog.scrollTop=chatLog.scrollHeight;
   leaderboardList.innerHTML=(state.leaderboard||[]).map((e,i)=>`<div class="leaderItem"><span>${i+1}. ${e.name} (${clsName(e.cls)})</span><span>${e.cleared?'通关':'第'+e.wave+'波'} · ${e.kills}杀</span></div>`).join('');
-  if (me) {
-    const eq = me.equipment || { weapon:null, armor:null, relic:null };
-    equipWeapon.innerHTML = `<span class="eqLabel">武器</span><span style="color:${eq.weapon?.color || '#d7d7df'}">${eq.weapon?.name || '无'}</span>`;
-    equipArmor.innerHTML = `<span class="eqLabel">护甲</span><span style="color:${eq.armor?.color || '#d7d7df'}">${eq.armor?.name || '无'}</span>`;
-    equipRelic.innerHTML = `<span class="eqLabel">遗物</span><span style="color:${eq.relic?.color || '#d7d7df'}">${eq.relic?.name || '无'}</span>`;
-    lootPrompt.textContent = me.lastPickupText ? `拾取：${me.lastPickupText}` : '';
-    lootPrompt.style.opacity = me.lastPickupText ? '1' : '0';
-  } else { if (lootPrompt) lootPrompt.style.opacity = '0'; }
 
   if(me?.upgradesOpen){
     upgrades.classList.remove('hidden');
     upgradeList.innerHTML=me.upgradeOptions.map((u,idx)=>`<button class="upgradeBtn" onclick="pickUpgrade('${u.key}')">${idx+1}. ${u.title}</button>`).join('');
-  } else upgrades.classList.add('hidden');
-  if(state.ended&&state.overSummary){
-    summary.classList.remove('hidden'); summaryTitle.textContent=state.overSummary.cleared?'通关成功':'对局失败';
-    summaryBody.innerHTML=state.overSummary.players.map(p=>`<div>${p.name} · ${clsName(p.cls)} · Lv.${p.level} · ${p.kills} 击杀</div>`).join('');
-  } else summary.classList.add('hidden');
+  } else {
+    upgrades.classList.add('hidden');
+  }
 
-  if(state.code && me){ roomPanel.classList.remove('hidden'); hud.classList.remove('hidden'); menu.classList.add('hidden'); }
-  else { menu.classList.remove('hidden'); }
+  if(state.ended && state.overSummary){
+    summary.classList.remove('hidden');
+    summaryTitle.textContent = state.overSummary.cleared ? '通关成功' : '对局失败';
+    summaryBody.innerHTML = state.overSummary.players.map(p=>`<div>${p.name} · ${clsName(p.cls)} · Lv.${p.level} · ${p.kills} 击杀</div>`).join('');
+  } else {
+    summary.classList.add('hidden');
+  }
+
+  // Stable button label
+  const readyBtn = document.getElementById('readyBtn');
+  if (readyBtn) {
+    if (!state.started && me && !me.ready) readyBtn.textContent = players.length <= 1 ? '开始游戏' : '准备开局';
+    else if (!state.started && me && me.ready) readyBtn.textContent = players.length <= 1 ? '取消开始' : '取消准备';
+    else if (state.started) readyBtn.textContent = '已开始';
+    else readyBtn.textContent = '准备 / 取消准备';
+  }
 }
 window.pickUpgrade=function(key){ socket.emit('pickUpgrade',{key}); };
 
 document.getElementById('createBtn').onclick=()=>{ if(!socket.connected) return setMessage('当前未连接服务器，请稍后重试','error'); setMessage('正在创建房间...','info'); socket.emit('createRoom',{name:document.getElementById('nameInput').value||'玩家',cls:document.getElementById('classInput').value}); };
 document.getElementById('joinBtn').onclick=()=>{ if(!socket.connected) return setMessage('当前未连接服务器，请稍后重试','error'); const code=normalizedRoomCode(); document.getElementById('roomInput').value=code; setMessage(`正在加入房间：${code||'(空)'}`,'info'); socket.emit('joinRoom',{code,name:document.getElementById('nameInput').value||'玩家',cls:document.getElementById('classInput').value}); };
-document.getElementById('readyBtn').onclick=()=>socket.emit('readyToggle');
+document.getElementById('readyBtn').onclick=()=>{ if(!hasSyncedMe()) return setMessage('房间数据尚未同步完成', 'error'); socket.emit('readyToggle'); };
 document.getElementById('restartBtn').onclick=()=>socket.emit('restart');
 document.getElementById('copyInviteBtn').onclick=async()=>{ if(!state?.code) return; const txt=`来玩联机肉鸽：${location.origin}\n房间码：${state.code}`; try{ await navigator.clipboard.writeText(txt); setMessage('邀请信息已复制','ok'); } catch { setMessage(txt,'info'); } };
 document.getElementById('chatSendBtn').onclick=sendChat;
@@ -392,9 +380,16 @@ window.addEventListener('keyup',e=>{
 });
 
 socket.on('connect',()=>{ myId=socket.id; setConnect('ok',`已连接服务器，Socket ID：${socket.id}`); setMessage('连接服务器成功','ok'); });
-socket.on('disconnect',reason=>{ setConnect('err',`连接断开：${reason}`); setMessage(`连接断开：${reason}`,'error'); });
+socket.on('disconnect',reason=>{ setConnect('err',`连接断开：${reason}`); setMessage(`连接断开：${reason}`,'error'); showMenuUI(); });
 socket.on('connect_error',err=>{ setConnect('err',`连接失败：${err.message}`); setMessage(`连接失败：${err.message}`,'error'); });
 socket.on('welcome',data=>{ myId=data.socketId||socket.id; if(data.leaderboard){ leaderboardList.innerHTML=data.leaderboard.map((e,i)=>`<div class="leaderItem"><span>${i+1}. ${e.name}</span><span>${e.cleared?'通关':'第'+e.wave+'波'}</span></div>`).join(''); } });
 socket.on('actionResult',info=>{ setMessage(info.message, info.ok?'ok':'error'); });
-socket.on('state',next=>{ state=next; updateUI(); });
+socket.on('state',next=>{
+  // Ignore transient room snapshots that don't yet contain current player if we already had a valid self-synced room state.
+  if (state && hasSyncedMe() && next && next.code === state.code && Array.isArray(next.players) && !next.players.some(p => p.id === myId)) {
+    return;
+  }
+  state = next;
+  updateUI();
+});
 socket.on('errorMessage',msg=>setMessage(msg,'error'));
