@@ -43,3 +43,52 @@ body.mobile-mode{overscroll-behavior:none;touch-action:manipulation}body.mobile-
 /* vNext tweaks */
 .side-upgrades{pointer-events:auto;}
 .playerItem{background:rgba(255,255,255,.07)}
+
+.equipment-panel{position:absolute;right:12px;top:110px;z-index:4;width:240px;padding:12px;}
+.equipmentList{display:grid;gap:8px;margin-top:8px;}
+.equipSlot{display:flex;justify-content:space-between;gap:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);padding:8px 10px;border-radius:10px;}
+.equipCommon{color:#e9eefc}.equipRare{color:#76c7ff}.equipLegendary{color:#ffd76d}
+@media (max-width:840px){.equipment-panel{left:12px;right:12px;top:auto;bottom:12px;width:auto;}}
+
+
+.equipmentPanel {
+  position: absolute; right: 12px; top: 112px; width: 290px; z-index: 4; padding: 12px;
+}
+.equipItem {
+  display:flex; justify-content:space-between; gap:8px;
+  padding:8px 0; border-bottom:1px solid rgba(255,255,255,.06); font-size:13px;
+}
+.eqLabel { color: var(--muted); }
+.lootPrompt {
+  position:absolute; left:50%; bottom:182px; transform:translateX(-50%);
+  z-index:5; padding:10px 14px; font-size:14px; color:#fff;
+  opacity:0; transition:opacity .25s ease;
+}
+@media (max-width: 840px) {
+  .equipmentPanel { width: calc(100vw - 24px); left: 12px; right: 12px; top: auto; bottom: 420px; }
+  .lootPrompt { bottom: 390px; max-width: calc(100vw - 24px); }
+}
+
+.compare-panel{position:absolute;right:12px;top:330px;width:290px;z-index:4;padding:12px}
+.deltaPlus{color:#7ef0b2}.deltaMinus{color:#ff9aa7}.deltaZero{color:#d7d7df}
+@media (max-width:840px){.compare-panel{width:calc(100vw - 24px);left:12px;right:12px;top:auto;bottom:300px}}
+
+.sets-panel{position:absolute;left:12px;top:330px;width:260px;z-index:4;padding:12px}
+.blacksmith-panel{position:absolute;left:12px;top:480px;width:340px;z-index:4;padding:12px}
+@media (max-width:840px){.sets-panel,.blacksmith-panel{width:calc(100vw - 24px);left:12px;right:12px;top:auto}.sets-panel{bottom:520px}.blacksmith-panel{bottom:410px}}
+
+.meta-panel{margin-bottom:12px;padding:12px}
+
+
+.wave-progress-panel{position:absolute;left:50%;transform:translateX(-50%);top:76px;z-index:4;width:min(420px,calc(100vw - 24px));padding:10px 12px;background:linear-gradient(180deg,#243045,#182333)}
+.wave-progress-head{justify-content:space-between;font-size:13px;color:#dbe6ff;margin-bottom:6px}
+.wave-progress-outer{height:14px;background:#0f1724;border:2px solid #000;box-shadow:inset 0 2px 0 rgba(255,255,255,.06)}
+.wave-progress-fill{height:100%;width:0%;background:linear-gradient(90deg,#f5d86a,#8ed14c)}
+.miniMapCanvas{position:absolute;right:12px;top:112px;z-index:4;width:180px;height:180px;background:#0f1724;border-radius:4px}
+@media (max-width:840px){.miniMapCanvas{width:140px;height:140px;top:112px;right:12px}.wave-progress-panel{top:140px}}
+.backpack-panel{position:absolute;right:12px;top:640px;width:290px;z-index:4;padding:12px}
+.backpackItem{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.06);font-size:13px}
+.backpackItem .btnRow{display:flex;gap:6px}
+.smallBtn{min-height:auto;padding:6px 8px;font-size:12px}
+.pickup-log{position:absolute;left:50%;transform:translateX(-50%);bottom:230px;z-index:5;width:min(420px,calc(100vw - 24px));padding:10px 14px;font-size:13px}
+@media (max-width:840px){.backpack-panel{left:12px;right:12px;top:auto;bottom:520px;width:auto}.pickup-log{bottom:360px}}

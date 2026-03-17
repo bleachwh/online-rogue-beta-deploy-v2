@@ -1,17 +1,21 @@
 const socket = io({ transports: ['websocket', 'polling'], timeout: 10000 });
-const spriteAssets = { players: new Image(), enemies: new Image(), tiles: new Image() };
+const spriteAssets = { players: new Image(), enemies: new Image(), tiles: new Image(), equipment: new Image() };
 let spritesReady = false;
 let spriteLoadCount = 0;
-function markSpriteLoaded(){ spriteLoadCount += 1; if(spriteLoadCount >= 3) spritesReady = true; }
+function markSpriteLoaded(){ spriteLoadCount += 1; if(spriteLoadCount >= 4) spritesReady = true; }
 spriteAssets.players.src = '/assets/players_states.png';
 spriteAssets.enemies.src = '/assets/enemies_states.png';
 spriteAssets.tiles.src = '/assets/tiles_anim.png';
+spriteAssets.equipment.src = '/assets/equipment_icons.png';
 spriteAssets.players.onload = markSpriteLoaded;
 spriteAssets.enemies.onload = markSpriteLoaded;
 spriteAssets.tiles.onload = markSpriteLoaded;
+spriteAssets.equipment.onload = markSpriteLoaded;
 
 const playerAnimState = new Map();
 const enemyAnimState = new Map();
+const playerFacingState = new Map();
+const enemyFacingState = new Map();
 
 function animFrame(speed=8, offset=0){ return Math.floor((Date.now()/1000)*speed + offset) % 4; }
 function enemyBaseRow(sprite){ return sprite==='slime' ? 0 : sprite==='bat' ? 1 : sprite==='golem' ? 2 : sprite==='warlock' ? 3 : 4; }
@@ -19,26 +23,48 @@ function playerBaseRow(cls){ return cls==='mage' ? 1 : cls==='rogue' ? 2 : 0; }
 function stateOffset(state){ return state==='idle' ? 0 : state==='walk' ? 1 : state==='attack' ? 2 : state==='hit' ? 3 : 4; }
 function playerRow(cls, state){ return playerBaseRow(cls) * 5 + stateOffset(state); }
 function enemyRow(sprite, state){ return enemyBaseRow(sprite) * 5 + stateOffset(state); }
+function qualityColor(q){ return q==='epic' ? '#c878ff' : q==='rare' ? '#6bb7ff' : '#d7d7df'; }
+function equipmentIconIndex(item){
+  if (!item) return 0;
+  if (item.slot === 'weapon') return item.quality === 'epic' ? 2 : item.quality === 'rare' ? 1 : 0;
+  if (item.slot === 'armor') return item.quality === 'rare' ? 4 : 3;
+  return 5;
+}
 
+
+function updateFacingFromAim(id, aimX, fallback='right', mapRef=playerFacingState){
+  const prev = mapRef.get(id) || fallback;
+  if (typeof aimX === 'number') {
+    if (aimX > 0.16) mapRef.set(id, 'right');
+    else if (aimX < -0.16) mapRef.set(id, 'left');
+    else mapRef.set(id, prev);
+  }
+  return mapRef.get(id) || prev;
+}
 function getPlayerDrawState(p){
   const prev = playerAnimState.get(p.id) || { hp: p.hp, hurtUntil: 0 };
   if (p.hp < prev.hp) prev.hurtUntil = Date.now() + 220;
   prev.hp = p.hp;
   playerAnimState.set(p.id, prev);
-  if (!p.alive) return 'death';
-  if (Date.now() < prev.hurtUntil) return 'hit';
-  if ((p.shootCd ?? 1) < 0.08) return 'attack';
-  if (p.input?.up || p.input?.down || p.input?.left || p.input?.right) return 'walk';
-  return 'idle';
+  const facing = updateFacingFromAim(p.id, p.aimX, 'right', playerFacingState);
+  let state = 'idle';
+  if (!p.alive) state = 'death';
+  else if (Date.now() < prev.hurtUntil) state = 'hit';
+  else if ((p.shootCd ?? 1) < 0.08) state = 'attack';
+  else if (p.input?.up || p.input?.down || p.input?.left || p.input?.right) state = 'walk';
+  return { state, facing };
 }
 function getEnemyDrawState(e){
   const prev = enemyAnimState.get(e.id) || { hp: e.hp, hurtUntil: 0 };
   if (e.hp < prev.hp) prev.hurtUntil = Date.now() + 180;
   prev.hp = e.hp;
   enemyAnimState.set(e.id, prev);
-  if (Date.now() < prev.hurtUntil) return 'hit';
-  if ((e.shotCd ?? 99) < 0.22 && (e.kind==='elite' || e.kind==='boss')) return 'attack';
-  return e.kind === 'fast' ? 'walk' : 'idle';
+  const facing = updateFacingFromAim(e.id, e.vx ?? 1, 'left', enemyFacingState);
+  let state = 'idle';
+  if (Date.now() < prev.hurtUntil) state = 'hit';
+  else if ((e.shotCd ?? 99) < 0.22 && (e.kind==='elite' || e.kind==='boss')) state = 'attack';
+  else if (e.kind === 'fast') state = 'walk';
+  return { state, facing };
 }
 
 const canvas = document.getElementById('game');
@@ -52,7 +78,35 @@ const upgrades = document.getElementById('upgrades'), upgradeList = document.get
 const summary = document.getElementById('summary'), summaryTitle = document.getElementById('summaryTitle'), summaryBody = document.getElementById('summaryBody');
 const heroBadge = document.getElementById('heroBadge'), levelText = document.getElementById('levelText'), hpText = document.getElementById('hpText'), xpText = document.getElementById('xpText');
 const hpFill = document.getElementById('hpFill'), xpFill = document.getElementById('xpFill');
+const waveProgressFill = document.getElementById('waveProgressFill');
+const waveProgressLabel = document.getElementById('waveProgressLabel');
+const goldTextTop = document.getElementById('goldTextTop');
+const miniMap = document.getElementById('miniMap');
+const miniCtx = miniMap ? miniMap.getContext('2d') : null;
+const pauseOverlay = document.getElementById('pauseOverlay');
+
+const equipmentPanel = document.getElementById('equipmentPanel');
+const equipWeapon = document.getElementById('equipWeapon');
+const equipArmor = document.getElementById('equipArmor');
+const equipRelic = document.getElementById('equipRelic');
+const lootPrompt = document.getElementById('lootPrompt');
+
+const compareBody = document.getElementById('compareBody');
+const setsBody = document.getElementById('setsBody');
+const metaShards = document.getElementById('metaShards');
+const metaAtkBtn = document.getElementById('metaAtkBtn');
+const metaHpBtn = document.getElementById('metaHpBtn');
+const metaSpeedBtn = document.getElementById('metaSpeedBtn');
+const reforgeWeaponBtn = document.getElementById('reforgeWeaponBtn');
+const reforgeArmorBtn = document.getElementById('reforgeArmorBtn');
+const reforgeRelicBtn = document.getElementById('reforgeRelicBtn');
 let W=0,H=0,DPR=Math.min(window.devicePixelRatio||1,2), state=null, myId=null, mouse={x:1,y:0}, firing=false, keys={up:false,down:false,left:false,right:false};
+let localPaused = false;
+let pickupHistory = [];
+let metaState = JSON.parse(localStorage.getItem('rogueMetaState') || '{"shards":0,"attack":0,"hp":0,"speed":0}');
+let rewardedRun = false;
+function saveMeta(){ localStorage.setItem('rogueMetaState', JSON.stringify(metaState)); if(metaShards) metaShards.textContent=`魂晶：${metaState.shards} · 攻击${metaState.attack} / 生命${metaState.hp} / 移速${metaState.speed}`; }
+saveMeta();
 const isTouchDevice = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 const mobileControls = document.getElementById('mobileControls');
 const joystickZone = document.getElementById('joystickZone');
@@ -64,17 +118,56 @@ const mobileHint = document.getElementById('mobileHint');
 const touchState = { active:false, id:null, ox:0, oy:0, attackId:null };
 if (isTouchDevice) { document.body.classList.add('mobile-mode'); mobileControls.classList.remove('hidden'); setTimeout(()=>mobileHint.classList.add('hidden'), 5000); }
 
-function resize(){ W=window.innerWidth; H=window.innerHeight; canvas.width=W*DPR; canvas.height=H*DPR; canvas.style.width=W+'px'; canvas.style.height=H+'px'; ctx.setTransform(DPR,0,0,DPR,0,0); }
+function resize(){
+  W=window.innerWidth; H=window.innerHeight;
+  canvas.width=W*DPR; canvas.height=H*DPR; canvas.style.width=W+'px'; canvas.style.height=H+'px'; ctx.setTransform(DPR,0,0,DPR,0,0);
+  if (miniMap && miniCtx){
+    const mw = miniMap.clientWidth || 180, mh = miniMap.clientHeight || 180;
+    miniMap.width = mw * DPR; miniMap.height = mh * DPR;
+    miniCtx.setTransform(DPR,0,0,DPR,0,0);
+  }
+}
 window.addEventListener('resize', resize); resize();
 function setMessage(text,type='info'){ menuMsg.textContent=text||''; menuMsg.style.color=type==='error'?'#ffb0ba':type==='ok'?'#93f1bd':'#aab6d6'; }
 function setConnect(status,text){ connectBadge.className='badge '+(status==='ok'?'ok':status==='err'?'err':'warn'); connectBadge.textContent=status==='ok'?'已连接':status==='err'?'已断开':'连接中'; socketText.textContent=text; }
 function normalizedRoomCode(){ return String(document.getElementById('roomInput').value||'').trim().toUpperCase().replace(/[^A-Z0-9]/g,''); }
 function clsName(cls){ return cls==='mage'?'魔法师':cls==='rogue'?'盗贼':'剑士'; }
 function clsColor(cls){ return cls==='mage'?'#84b9ff':cls==='rogue'?'#ffd76f':'#78e7ac'; }
+function rarityClass(r){ return r==='legendary' ? 'equipLegendary' : r==='rare' ? 'equipRare' : 'equipCommon'; }
+
+function statPackFromItem(item){
+  const b = item?.bonuses || item?.stats || {};
+  return { attack:b.attack||b.power||0, haste:b.haste||0, speed:b.speed||0, hp:b.hp||b.maxHp||0 };
+}
+function compareItemText(newItem, oldItem){
+  if(!newItem) return '附近没有装备掉落';
+  const a = statPackFromItem(newItem), b = statPackFromItem(oldItem);
+  const delta = {
+    attack:(a.attack-b.attack), haste:(a.haste-b.haste), speed:(a.speed-b.speed), hp:(a.hp-b.hp)
+  };
+  const fmt = (k,v,percent=False)=> {
+    const cls = v>0 ? 'deltaPlus' : v<0 ? 'deltaMinus' : 'deltaZero';
+    const txt = percent ? (v>0?'+':'') + (v*100).toFixed(0) + '%' : (v>0?'+':'') + v;
+    return `<span class="${cls}">${k} ${txt}</span>`;
+  };
+  return `<div style="color:${newItem.color||'#fff'};font-weight:700">${newItem.name || '未知装备'} ${newItem.quality ? '· '+newItem.quality : ''}</div>
+    <div class="small muted">对比当前${newItem.slot==='weapon'?'武器':newItem.slot==='armor'?'护甲':'遗物'}</div>
+    <div class="small" style="display:grid;gap:4px;margin-top:6px">${fmt('攻击',delta.attack)} ${fmt('攻速',delta.haste,true)} ${fmt('移速',delta.speed)} ${fmt('生命',delta.hp)}</div>`;
+}
+function nearestEquipmentDrop(me){
+  let best=null, bestD=1e9;
+  for(const item of state?.equipmentDrops||[]){
+    const dx=item.x-me.x, dy=item.y-me.y; const d=Math.hypot(dx,dy);
+    if(d<bestD){bestD=d; best=item;}
+  }
+  return bestD<120 ? best : null;
+}
+
+function equipLabel(item){ return item ? item.name : '-'; }
 function getMe(){ return state?.players?.find(p=>p.id===myId) || null; }
 // Allow free movement in room and during upgrades; only block if ended/dead.
-function canMove(){ const me=getMe(); return !!(me && me.alive && !state?.ended); }
-function canAttack(){ const me=getMe(); return !!(state?.started && me && me.alive && !state?.ended); }
+function canMove(){ const me=getMe(); return !!(me && me.alive && !state?.ended && !localPaused); }
+function canAttack(){ const me=getMe(); return !!(state?.started && me && me.alive && !state?.ended && !localPaused); }
 function resetInputs(){ keys={up:false,down:false,left:false,right:false}; firing=false; }
 function setMoveKeysFromVector(nx, ny) { const threshold = 0.2; keys.left = nx < -threshold; keys.right = nx > threshold; keys.up = ny < -threshold; keys.down = ny > threshold; }
 function releaseTouchMove() { touchState.active = false; touchState.id = null; setMoveKeysFromVector(0,0); joyBase.classList.add('hidden'); joyStick.classList.add('hidden'); }
@@ -111,13 +204,20 @@ function drawPlayer(me,p){
   ctx.fillStyle='rgba(0,0,0,.22)';
   ctx.beginPath(); ctx.ellipse(0,16,14,6,0,0,Math.PI*2); ctx.fill();
   if(spritesReady){
-    const state = getPlayerDrawState(p);
-    const row = playerRow(p.cls, state);
+    const info = getPlayerDrawState(p);
+    const row = playerRow(p.cls, info.state);
     const moving = !!(p.input?.up || p.input?.down || p.input?.left || p.input?.right);
-    const frame = state==='death' ? 3 : state==='attack' ? animFrame(10, (p.id||'').length) : moving ? animFrame(8, (p.id||'').length) : animFrame(2, (p.id||'').length);
+    const frame = info.state==='death' ? 3 : info.state==='attack' ? animFrame(10, (p.id||'').length) : moving ? animFrame(8, (p.id||'').length) : animFrame(2, (p.id||'').length);
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(spriteAssets.players, frame*32, row*32, 32, 32, -16, -18, 32, 32);
+    if (info.facing === 'left') {
+      ctx.scale(-1, 1);
+      ctx.drawImage(spriteAssets.players, frame*32, row*32, 32, 32, -16, -18, -32, 32);
+    } else {
+      ctx.drawImage(spriteAssets.players, frame*32, row*32, 32, 32, -16, -18, 32, 32);
+    }
   } else {
+    const info = getPlayerDrawState(p);
+    if (info.facing === 'left') ctx.scale(-1, 1);
     if(p.cls==='mage'){
       ctx.fillStyle='#6d7dff'; ctx.beginPath(); ctx.moveTo(-12,10); ctx.lineTo(0,-12); ctx.lineTo(12,10); ctx.closePath(); ctx.fill();
       ctx.fillStyle='#9ec7ff'; ctx.fillRect(-10,-6,20,14); ctx.fillStyle='#edd2b0'; ctx.fillRect(-7,-18,14,12); ctx.fillStyle='#4f58a6'; ctx.fillRect(-11,-22,22,6);
@@ -138,23 +238,29 @@ function drawPlayer(me,p){
 // Original pixel-monster style; not using copyrighted Vampire Survivors sprites.
 function drawEnemy(me,e){
   const pos=worldToScreen(me,e.x,e.y);
+  const info = getEnemyDrawState(e);
   if(spritesReady){
-    const state = getEnemyDrawState(e);
-    const frame = state==='death' ? 3 : state==='attack' ? animFrame(9, e.seed||0) : state==='walk' ? animFrame(10, e.seed||0) : animFrame(4, e.seed||0);
-    const row = enemyRow(e.sprite, state);
+    const frame = info.state==='death' ? 3 : info.state==='attack' ? animFrame(9, e.seed||0) : info.state==='walk' ? animFrame(10, e.seed||0) : animFrame(4, e.seed||0);
+    const row = enemyRow(e.sprite, info.state);
     ctx.save();
     ctx.translate(pos.x, pos.y);
     ctx.fillStyle='rgba(0,0,0,.2)';
     ctx.beginPath(); ctx.ellipse(0, e.r*0.9, e.r*0.8, e.r*0.35, 0, 0, Math.PI*2); ctx.fill();
     ctx.imageSmoothingEnabled = false;
     const size = e.kind==='boss' ? 56 : 40;
-    ctx.drawImage(spriteAssets.enemies, frame*32, row*32, 32, 32, -size/2, -size/2, size, size);
+    if (info.facing === 'left') {
+      ctx.scale(-1, 1);
+      ctx.drawImage(spriteAssets.enemies, frame*32, row*32, 32, 32, -size/2, -size/2, -size, size);
+    } else {
+      ctx.drawImage(spriteAssets.enemies, frame*32, row*32, 32, 32, -size/2, -size/2, size, size);
+    }
     ctx.restore();
   } else {
     const t = Date.now()/170 + e.seed;
     const bob = Math.sin(t)*1.6;
     ctx.save();
     ctx.translate(pos.x, pos.y + bob);
+    if (info.facing === 'left') ctx.scale(-1, 1);
     ctx.fillStyle='rgba(0,0,0,.2)';
     ctx.beginPath(); ctx.ellipse(0, e.r*0.9, e.r*0.8, e.r*0.35, 0, 0, Math.PI*2); ctx.fill();
     if(e.sprite==='slime'){
@@ -213,6 +319,26 @@ function drawBullet(me,b,enemy=false){
   ctx.beginPath(); ctx.fillStyle=enemy?'#ff8ca0':(b.kind==='knife'?'#ffd76f':'#9fd1ff'); ctx.arc(pos.x,pos.y,b.r,0,Math.PI*2); ctx.fill();
 }
 function drawGem(me,g){ const pos=worldToScreen(me,g.x,g.y); ctx.beginPath(); ctx.fillStyle='#6ac8ff'; ctx.arc(pos.x,pos.y,5,0,Math.PI*2); ctx.fill(); }
+function drawEquipmentDrop(me,item){
+  const pos = worldToScreen(me, item.x, item.y);
+  ctx.save();
+  ctx.translate(pos.x, pos.y);
+  ctx.fillStyle = 'rgba(0,0,0,.22)';
+  ctx.beginPath(); ctx.ellipse(0, 14, 11, 5, 0, 0, Math.PI*2); ctx.fill();
+  if (spritesReady) {
+    const idx = equipmentIconIndex(item);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(spriteAssets.equipment, idx*32, 0, 32, 32, -16, -16, 32, 32);
+  } else {
+    ctx.fillStyle = qualityColor(item.quality);
+    ctx.fillRect(-8, -8, 16, 16);
+  }
+  ctx.strokeStyle = qualityColor(item.quality);
+  ctx.lineWidth = 2;
+  ctx.strokeRect(-12, -12, 24, 24);
+  ctx.restore();
+}
+function drawDrop(me,d){ const pos=worldToScreen(me,d.x,d.y); const color=d.rarity==='legendary'?'#ffd76d':d.rarity==='rare'?'#76c7ff':'#e9eefc'; ctx.save(); ctx.translate(pos.x,pos.y); ctx.strokeStyle=color; ctx.lineWidth=2; ctx.strokeRect(-7,-7,14,14); ctx.fillStyle=color+'88'; ctx.fillRect(-4,-4,8,8); ctx.restore(); }
 function render(){
   requestAnimationFrame(render); ctx.clearRect(0,0,W,H);
   if(!state || !state.players?.length) return;
@@ -220,10 +346,25 @@ function render(){
   const bg=ctx.createLinearGradient(0,0,0,H); bg.addColorStop(0,'#22405f'); bg.addColorStop(.55,'#29462f'); bg.addColorStop(1,'#1b2a19'); ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
   drawGrid(me); drawWorldDecor(me);
   for(const g of state.gems||[]) drawGem(me,g);
+  for(const item of state.equipmentDrops||[]) drawEquipmentDrop(me,item);
+  for(const d of state.drops||[]) drawDrop(me,d);
   for(const b of state.bullets||[]) drawBullet(me,b,false);
   for(const b of state.enemyBullets||[]) drawBullet(me,b,true);
   for(const e of state.enemies||[]) drawEnemy(me,e);
   for(const p of state.players||[]) drawPlayer(me,p);
+  drawMiniMap(me);
+}
+
+function drawMiniMap(me){
+  if(!miniMap || !miniCtx || !state) return;
+  const w=(miniMap.clientWidth||180), h=(miniMap.clientHeight||180);
+  miniCtx.clearRect(0,0,w,h);
+  miniCtx.fillStyle='#111827'; miniCtx.fillRect(0,0,w,h);
+  miniCtx.strokeStyle='rgba(255,255,255,.08)'; miniCtx.strokeRect(4,4,w-8,h-8);
+  const scale=0.08, cx=w/2, cy=h/2;
+  for(const e of state.enemies||[]){ const x=cx+(e.x-me.x)*scale, y=cy+(e.y-me.y)*scale; if(x<0||x>w||y<0||y>h) continue; miniCtx.fillStyle=e.kind==='boss'?'#ff8a8a':e.kind==='elite'?'#7ce7ff':'#f2d36b'; miniCtx.fillRect(x-2,y-2,4,4);} 
+  for(const item of state.equipmentDrops||[]){ const x=cx+(item.x-me.x)*scale, y=cy+(item.y-me.y)*scale; if(x<0||x>w||y<0||y>h) continue; miniCtx.fillStyle=item.color||'#d7d7df'; miniCtx.fillRect(x-1.5,y-1.5,3,3);} 
+  for(const p of state.players||[]){ const x=cx+(p.x-me.x)*scale, y=cy+(p.y-me.y)*scale; if(x<0||x>w||y<0||y>h) continue; miniCtx.fillStyle=p.id===myId?'#8ed14c':'#69b7ff'; miniCtx.beginPath(); miniCtx.arc(x,y,3,0,Math.PI*2); miniCtx.fill(); }
 }
 render();
 
@@ -231,8 +372,14 @@ function updateUI(){
   if(!state) return;
   const me=state.players.find(p=>p.id===myId); const other=state.players.find(p=>p.id!==myId);
   roomCodeEl.textContent=state.code||'----'; roomInfo.textContent=`房间 ${state.code||'----'}`;
-  roomDebug.textContent=`房间玩家数：${state.players.length} · 已开始：${state.started?'是':'否'}${state.started?'':' · 现在可自由活动'}${state.players.length===1 && !state.started ? ' · 单人可直接准备开始' : ''}`;
+  roomDebug.textContent=`房间玩家数：${state.players.length} · 已开始：${state.started?'是':'否'} · 方向动画已启用${state.started?'':' · 现在可自由活动'}${state.players.length===1 && !state.started ? ' · 单人可直接准备开始' : ''}`;
+  const readyBtn = document.getElementById('readyBtn');
+  if (readyBtn && me) readyBtn.textContent = state.started ? '已开始' : (me.ready ? '取消准备' : (state.players.length===1 ? '开始游戏' : '准备开局'));
   waveText.textContent=`第 ${state.wave} 波`;
+  const prog = state.waveDuration ? Math.max(0, Math.min(100, (state.waveTime/state.waveDuration)*100)) : 0;
+  waveProgressFill && (waveProgressFill.style.width = `${prog}%`);
+  waveProgressLabel && (waveProgressLabel.textContent = `第 ${state.wave} 波 · ${Math.max(0,Math.ceil((state.waveDuration||0)-(state.waveTime||0)))}s`);
+  goldTextTop && (goldTextTop.textContent = me ? `金币 ${me.gold||0}` : '金币 0');
   playersList.innerHTML='';
   for(const p of state.players){
     const div=document.createElement('div'); div.className='playerItem';
@@ -246,24 +393,49 @@ function updateUI(){
     hpText.textContent=`${me.hp}/${me.maxHp}`; xpText.textContent=`${me.xp}/${me.xpNeed}`;
     hpFill.style.width=`${Math.max(0,Math.min(100,me.hp/me.maxHp*100))}%`;
     xpFill.style.width=`${Math.max(0,Math.min(100,me.xp/me.xpNeed*100))}%`;
+    const weapon=me.equipment?.weapon, armor=me.equipment?.armor, relic=me.equipment?.relic;
+    equipWeapon.textContent=equipLabel(weapon); equipWeapon.className=rarityClass(weapon?.rarity||weapon?.quality);
+    equipArmor.textContent=equipLabel(armor); equipArmor.className=rarityClass(armor?.rarity||armor?.quality);
+    equipRelic.textContent=equipLabel(relic); equipRelic.className=rarityClass(relic?.rarity||relic?.quality);
+    const near = nearestEquipmentDrop(me);
+    const current = near ? (me.equipment?.[near.slot] || null) : null;
+    if (compareBody) compareBody.innerHTML = compareItemText(near, current);
+    if (setsBody) setsBody.innerHTML = (me.activeSets&&me.activeSets.length) ? me.activeSets.map(s=>`<div><b>${s.name}</b> · ${s.count}件激活</div>`).join('') : '暂无激活套装';
   }
   chatLog.innerHTML=(state.chat||[]).map(c=>`<div><b>${c.name}：</b>${c.text}</div>`).join(''); chatLog.scrollTop=chatLog.scrollHeight;
   leaderboardList.innerHTML=(state.leaderboard||[]).map((e,i)=>`<div class="leaderItem"><span>${i+1}. ${e.name} (${clsName(e.cls)})</span><span>${e.cleared?'通关':'第'+e.wave+'波'} · ${e.kills}杀</span></div>`).join('');
+  if (me) {
+    if (me.lastPickupText) {
+      if (!pickupHistory.length || pickupHistory[0].text !== me.lastPickupText) pickupHistory.unshift({text:me.lastPickupText, t:Date.now()});
+      pickupHistory = pickupHistory.slice(0,3);
+    }
+    pickupHistory = pickupHistory.filter(x => Date.now()-x.t < 3000);
+    const prompt = document.getElementById('lootPrompt');
+    if (prompt) { prompt.innerHTML = pickupHistory.map(x=>`<div>拾取：${x.text}</div>`).join(''); prompt.style.opacity = pickupHistory.length ? '1':'0'; }
+    const eq = me.equipment || { weapon:null, armor:null, relic:null };
+    equipWeapon.innerHTML = `<span class="eqLabel">武器</span><span style="color:${eq.weapon?.color || '#d7d7df'}">${eq.weapon?.name || '无'}</span>`;
+    equipArmor.innerHTML = `<span class="eqLabel">护甲</span><span style="color:${eq.armor?.color || '#d7d7df'}">${eq.armor?.name || '无'}</span>`;
+    equipRelic.innerHTML = `<span class="eqLabel">遗物</span><span style="color:${eq.relic?.color || '#d7d7df'}">${eq.relic?.name || '无'}</span>`;
+    lootPrompt.textContent = me.lastPickupText ? `拾取：${me.lastPickupText}` : '';
+    lootPrompt.style.opacity = me.lastPickupText ? '1' : '0';
+  }
+
   if(me?.upgradesOpen){
     upgrades.classList.remove('hidden');
     upgradeList.innerHTML=me.upgradeOptions.map((u,idx)=>`<button class="upgradeBtn" onclick="pickUpgrade('${u.key}')">${idx+1}. ${u.title}</button>`).join('');
   } else upgrades.classList.add('hidden');
   if(state.ended&&state.overSummary){
     summary.classList.remove('hidden'); summaryTitle.textContent=state.overSummary.cleared?'通关成功':'对局失败';
-    summaryBody.innerHTML=state.overSummary.players.map(p=>`<div>${p.name} · ${clsName(p.cls)} · Lv.${p.level} · ${p.kills} 击杀</div>`).join('');
+    if(!rewardedRun){ const gain = Math.max(1, (state.overSummary.wave||state.wave||1) + (state.overSummary.cleared ? 5 : 0)); metaState.shards += gain; saveMeta(); rewardedRun = true; }
+    summaryBody.innerHTML=state.overSummary.players.map(p=>`<div>${p.name} · ${clsName(p.cls)} · Lv.${p.level} · ${p.kills} 击杀</div>`).join('') + `<div style="margin-top:8px;color:#f5d86a">获得魂晶：${Math.max(1, (state.overSummary.wave||state.wave||1) + (state.overSummary.cleared ? 5 : 0))}</div>`;
   } else summary.classList.add('hidden');
 
   if(state.code){ roomPanel.classList.remove('hidden'); hud.classList.remove('hidden'); menu.classList.add('hidden'); }
 }
 window.pickUpgrade=function(key){ socket.emit('pickUpgrade',{key}); };
 
-document.getElementById('createBtn').onclick=()=>{ if(!socket.connected) return setMessage('当前未连接服务器，请稍后重试','error'); setMessage('正在创建房间...','info'); socket.emit('createRoom',{name:document.getElementById('nameInput').value||'玩家',cls:document.getElementById('classInput').value}); };
-document.getElementById('joinBtn').onclick=()=>{ if(!socket.connected) return setMessage('当前未连接服务器，请稍后重试','error'); const code=normalizedRoomCode(); document.getElementById('roomInput').value=code; setMessage(`正在加入房间：${code||'(空)'}`,'info'); socket.emit('joinRoom',{code,name:document.getElementById('nameInput').value||'玩家',cls:document.getElementById('classInput').value}); };
+document.getElementById('createBtn').onclick=()=>{ if(!socket.connected) return setMessage('当前未连接服务器，请稍后重试','error'); setMessage('正在创建房间...','info'); socket.emit('createRoom',{name:document.getElementById('nameInput').value||'玩家',cls:document.getElementById('classInput').value}); setTimeout(()=>socket.emit('setMetaBuild', metaState), 200); rewardedRun=false; };
+document.getElementById('joinBtn').onclick=()=>{ if(!socket.connected) return setMessage('当前未连接服务器，请稍后重试','error'); const code=normalizedRoomCode(); document.getElementById('roomInput').value=code; setMessage(`正在加入房间：${code||'(空)'}`,'info'); socket.emit('joinRoom',{code,name:document.getElementById('nameInput').value||'玩家',cls:document.getElementById('classInput').value}); setTimeout(()=>socket.emit('setMetaBuild', metaState), 200); rewardedRun=false; };
 document.getElementById('readyBtn').onclick=()=>socket.emit('readyToggle');
 document.getElementById('restartBtn').onclick=()=>socket.emit('restart');
 document.getElementById('copyInviteBtn').onclick=async()=>{ if(!state?.code) return; const txt=`来玩联机肉鸽：${location.origin}\n房间码：${state.code}`; try{ await navigator.clipboard.writeText(txt); setMessage('邀请信息已复制','ok'); } catch { setMessage(txt,'info'); } };
@@ -283,6 +455,7 @@ window.addEventListener('keydown',e=>{
   if(k==='d'||e.key==='ArrowRight') keys.right=canMove();
   if(e.code==='Space' && canMove()) socket.emit('dash');
   if(k==='q' && canMove()) socket.emit('skill');
+  if(k==='p'){ localPaused = !localPaused; pauseOverlay && pauseOverlay.classList.toggle('hidden', !localPaused); if(localPaused){ keys={up:false,down:false,left:false,right:false}; firing=false; } }
   if(k==='1'||k==='2'||k==='3'){
     const me=state?.players?.find(p=>p.id===myId);
     if(me?.upgradesOpen){
@@ -304,5 +477,13 @@ socket.on('disconnect',reason=>{ setConnect('err',`连接断开：${reason}`); s
 socket.on('connect_error',err=>{ setConnect('err',`连接失败：${err.message}`); setMessage(`连接失败：${err.message}`,'error'); });
 socket.on('welcome',data=>{ myId=data.socketId||socket.id; if(data.leaderboard){ leaderboardList.innerHTML=data.leaderboard.map((e,i)=>`<div class="leaderItem"><span>${i+1}. ${e.name}</span><span>${e.cleared?'通关':'第'+e.wave+'波'}</span></div>`).join(''); } });
 socket.on('actionResult',info=>{ setMessage(info.message, info.ok?'ok':'error'); });
-socket.on('state',next=>{ state=next; updateUI(); });
+socket.on('state',next=>{ state=next; saveMeta(); updateUI(); });
 socket.on('errorMessage',msg=>setMessage(msg,'error'));
+
+reforgeWeaponBtn && (reforgeWeaponBtn.onclick=()=>socket.emit('reforge',{slot:'weapon'}));
+reforgeArmorBtn && (reforgeArmorBtn.onclick=()=>socket.emit('reforge',{slot:'armor'}));
+reforgeRelicBtn && (reforgeRelicBtn.onclick=()=>socket.emit('reforge',{slot:'relic'}));
+
+metaAtkBtn && (metaAtkBtn.onclick=()=>{ if(metaState.shards<1) return; metaState.shards-=1; metaState.attack+=1; saveMeta(); });
+metaHpBtn && (metaHpBtn.onclick=()=>{ if(metaState.shards<1) return; metaState.shards-=1; metaState.hp+=1; saveMeta(); });
+metaSpeedBtn && (metaSpeedBtn.onclick=()=>{ if(metaState.shards<1) return; metaState.shards-=1; metaState.speed+=1; saveMeta(); });
