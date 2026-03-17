@@ -38,3 +38,8 @@ button:hover{filter:brightness(1.04)}
 body.mobile-mode{overscroll-behavior:none;touch-action:manipulation}body.mobile-mode .chatWrap,body.mobile-mode .leaderboard{width:min(340px,calc(100vw - 24px))}body.mobile-mode .side{width:min(360px,calc(100vw - 24px))}
 @media (max-width: 960px){.topbar{flex-direction:column;right:auto;width:min(360px,calc(100vw - 24px))}.status-panel{max-width:none}.side-upgrades{top:auto;bottom:188px}.leaderboard{width:calc(100vw - 24px);left:12px;right:12px}.chatWrap{width:calc(100vw - 24px);bottom:220px}.stack-mobile{flex-direction:column;align-items:stretch}}
 @media (pointer: coarse), (max-width: 840px){body.mobile-mode .topbar{top:calc(env(safe-area-inset-top,0px) + 8px)}body.mobile-mode .chatWrap{bottom:calc(env(safe-area-inset-bottom,0px) + 132px)}body.mobile-mode .leaderboard{bottom:calc(env(safe-area-inset-bottom,0px) + 12px)}body.mobile-mode .side-upgrades{bottom:calc(env(safe-area-inset-bottom,0px) + 210px)}body.mobile-mode .side{top:calc(env(safe-area-inset-top,0px) + 8px)}}
+
+
+/* vNext tweaks */
+.side-upgrades{pointer-events:auto;}
+.playerItem{background:rgba(255,255,255,.07)}
