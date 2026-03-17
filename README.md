@@ -25,8 +25,8 @@ npm start
 - 升级出现时角色仍可继续移动
 
 
-## 真正逐帧动画版
-- 新增 players_anim.png 与 enemies_anim.png
-- 角色与怪物按 4 帧 spritesheet 播放
-- 待机与移动使用不同播放速度
-- 贴图加载失败时自动回退到原绘制方案
+## 多状态动画版
+- 角色状态：待机 / 行走 / 攻击 / 受击 / 死亡
+- 怪物状态：待机 / 行走 / 攻击 / 受击 / 死亡
+- 使用 players_states.png 与 enemies_states.png 进行状态切换
+- 受击状态通过客户端检测血量变化触发

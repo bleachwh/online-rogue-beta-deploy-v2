@@ -3,15 +3,43 @@ const spriteAssets = { players: new Image(), enemies: new Image(), tiles: new Im
 let spritesReady = false;
 let spriteLoadCount = 0;
 function markSpriteLoaded(){ spriteLoadCount += 1; if(spriteLoadCount >= 3) spritesReady = true; }
-spriteAssets.players.src = '/assets/players_anim.png';
-spriteAssets.enemies.src = '/assets/enemies_anim.png';
+spriteAssets.players.src = '/assets/players_states.png';
+spriteAssets.enemies.src = '/assets/enemies_states.png';
 spriteAssets.tiles.src = '/assets/tiles_anim.png';
 spriteAssets.players.onload = markSpriteLoaded;
 spriteAssets.enemies.onload = markSpriteLoaded;
 spriteAssets.tiles.onload = markSpriteLoaded;
+
+const playerAnimState = new Map();
+const enemyAnimState = new Map();
+
 function animFrame(speed=8, offset=0){ return Math.floor((Date.now()/1000)*speed + offset) % 4; }
-function enemyRow(sprite){ return sprite==='slime' ? 0 : sprite==='bat' ? 1 : sprite==='golem' ? 2 : sprite==='warlock' ? 3 : 4; }
-function playerRow(cls){ return cls==='mage' ? 1 : cls==='rogue' ? 2 : 0; }
+function enemyBaseRow(sprite){ return sprite==='slime' ? 0 : sprite==='bat' ? 1 : sprite==='golem' ? 2 : sprite==='warlock' ? 3 : 4; }
+function playerBaseRow(cls){ return cls==='mage' ? 1 : cls==='rogue' ? 2 : 0; }
+function stateOffset(state){ return state==='idle' ? 0 : state==='walk' ? 1 : state==='attack' ? 2 : state==='hit' ? 3 : 4; }
+function playerRow(cls, state){ return playerBaseRow(cls) * 5 + stateOffset(state); }
+function enemyRow(sprite, state){ return enemyBaseRow(sprite) * 5 + stateOffset(state); }
+
+function getPlayerDrawState(p){
+  const prev = playerAnimState.get(p.id) || { hp: p.hp, hurtUntil: 0 };
+  if (p.hp < prev.hp) prev.hurtUntil = Date.now() + 220;
+  prev.hp = p.hp;
+  playerAnimState.set(p.id, prev);
+  if (!p.alive) return 'death';
+  if (Date.now() < prev.hurtUntil) return 'hit';
+  if ((p.shootCd ?? 1) < 0.08) return 'attack';
+  if (p.input?.up || p.input?.down || p.input?.left || p.input?.right) return 'walk';
+  return 'idle';
+}
+function getEnemyDrawState(e){
+  const prev = enemyAnimState.get(e.id) || { hp: e.hp, hurtUntil: 0 };
+  if (e.hp < prev.hp) prev.hurtUntil = Date.now() + 180;
+  prev.hp = e.hp;
+  enemyAnimState.set(e.id, prev);
+  if (Date.now() < prev.hurtUntil) return 'hit';
+  if ((e.shotCd ?? 99) < 0.22 && (e.kind==='elite' || e.kind==='boss')) return 'attack';
+  return e.kind === 'fast' ? 'walk' : 'idle';
+}
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -74,25 +102,7 @@ setInterval(sendInput, 1000/20);
 
 const worldToScreen=(me,x,y)=>({x:x-me.x+W/2,y:y-me.y+H/2});
 function drawGrid(me){ const size=72, ox=(( -me.x % size)+size)%size, oy=(( -me.y % size)+size)%size; ctx.strokeStyle='rgba(255,255,255,.05)'; ctx.lineWidth=1; for(let x=ox;x<W;x+=size){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); } for(let y=oy;y<H;y+=size){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); } }
-function drawWorldDecor(me){
-  const tile=96, ox=(( -me.x % tile)+tile)%tile, oy=(( -me.y % tile)+tile)%tile;
-  for(let x=ox-tile;x<W+tile;x+=tile){
-    for(let y=oy-tile;y<H+tile;y+=tile){
-      const seed=Math.abs(Math.sin(x*0.01+y*0.013));
-      if(spritesReady){
-        const col = seed > .66 ? 0 : seed > .33 ? 1 : 2;
-        ctx.globalAlpha = .22;
-        ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(spriteAssets.tiles, col*32, 0, 32, 32, x, y, 48, 48);
-      } else {
-        ctx.globalAlpha=.08+seed*.05;
-        ctx.fillStyle= seed>.55 ? '#3f5f2b' : '#6d5938';
-        ctx.fillRect(x+22,y+22,10+seed*16,10+seed*16);
-      }
-    }
-  }
-  ctx.globalAlpha=1;
-}
+function drawWorldDecor(me){ const tile=144, ox=(( -me.x % tile)+tile)%tile, oy=(( -me.y % tile)+tile)%tile; for(let x=ox-tile;x<W+tile;x+=tile){ for(let y=oy-tile;y<H+tile;y+=tile){ const seed=Math.abs(Math.sin(x*0.01+y*0.013)); ctx.globalAlpha=.08+seed*.05; ctx.fillStyle= seed>.55 ? '#3f5f2b' : '#6d5938'; ctx.fillRect(x+22,y+22,10+seed*16,10+seed*16); } } ctx.globalAlpha=1; }
 
 function drawPlayer(me,p){
   const pos=worldToScreen(me,p.x,p.y), bob=Math.sin((Date.now()/130)+(p.x+p.y)*0.01)*1.8;
@@ -101,9 +111,10 @@ function drawPlayer(me,p){
   ctx.fillStyle='rgba(0,0,0,.22)';
   ctx.beginPath(); ctx.ellipse(0,16,14,6,0,0,Math.PI*2); ctx.fill();
   if(spritesReady){
-    const row = playerRow(p.cls);
+    const state = getPlayerDrawState(p);
+    const row = playerRow(p.cls, state);
     const moving = !!(p.input?.up || p.input?.down || p.input?.left || p.input?.right);
-    const frame = moving ? animFrame(8, (p.id||'').length) : animFrame(2, (p.id||'').length);
+    const frame = state==='death' ? 3 : state==='attack' ? animFrame(10, (p.id||'').length) : moving ? animFrame(8, (p.id||'').length) : animFrame(2, (p.id||'').length);
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(spriteAssets.players, frame*32, row*32, 32, 32, -16, -18, 32, 32);
   } else {
@@ -128,8 +139,9 @@ function drawPlayer(me,p){
 function drawEnemy(me,e){
   const pos=worldToScreen(me,e.x,e.y);
   if(spritesReady){
-    const frame = animFrame(e.kind==='fast' ? 10 : 6, e.seed||0);
-    const row = enemyRow(e.sprite);
+    const state = getEnemyDrawState(e);
+    const frame = state==='death' ? 3 : state==='attack' ? animFrame(9, e.seed||0) : state==='walk' ? animFrame(10, e.seed||0) : animFrame(4, e.seed||0);
+    const row = enemyRow(e.sprite, state);
     ctx.save();
     ctx.translate(pos.x, pos.y);
     ctx.fillStyle='rgba(0,0,0,.2)';
@@ -157,7 +169,7 @@ function drawEnemy(me,e){
       ctx.fillStyle='#163119'; ctx.fillRect(-4,-4,3,3); ctx.fillRect(1,-4,3,3);
       ctx.fillStyle='#8bf79a'; ctx.fillRect(-5,-9,10,4);
     } else if(e.sprite==='bat'){
-      const wing = [0,2,0,-2][frame];
+      const wing = [0,2,0,-2][Math.floor(Date.now()/120)%4];
       ctx.fillStyle='#bca55a';
       ctx.beginPath();
       ctx.moveTo(0, -e.r*0.2);
